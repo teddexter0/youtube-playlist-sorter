@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/youtube-sort",
+      "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/youtube-cleanup",
+      "schedule": "0 16 * * *"
+    }
+  ]
+}

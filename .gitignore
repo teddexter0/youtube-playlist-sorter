@@ -1,0 +1,7 @@
+.next
+node_modules
+.tools
+.env*.local
+.env
+firebase-service-account*.json
+vercel.json.local
