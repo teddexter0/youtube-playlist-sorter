@@ -6,7 +6,7 @@ Tech stack: Next.js 14 App Router, TypeScript, Firebase Firestore, Google OAuth,
 
 ## Sorting rules
 
-Classification is deterministic and uses title, description, hashtags, tags, top relevant comments, owner channel title, owner channel ID, duration, and whether the owner channel is in your subscriptions. Faith terms like `testimony`, `Jesus`, `Cross`, `gospel`, and `salvation` route to `new nj`; philosophy/debate signals including Alex O'Connor/Cosmic Skeptic route to `Next` only when the video content also supports that topic; long unclassified videos route to `podcasts`; and sports, gaming, money, news, and late-night signals keep their own target rules.
+Classification is deterministic and uses title, description, hashtags, tags, top relevant comments, owner channel title, owner channel ID, duration, and whether the owner channel is in your subscriptions. Niche terms to their specific playlists of choice
 
 Target playlists are kept in ascending video length by inserting each new video at the position where its duration belongs, shortest at the top and longest at the bottom.
 
