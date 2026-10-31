@@ -30,7 +30,7 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
   }
   async function save() {
     const data = await request({ action: "save", profile: { ...profile, interests: lines(interests), avoid: lines(avoid), seedPlaylistIds: lines(seeds) } });
-    if (data) { setProfile(data.profile); setDirty(false); setRun(null); setMessage("Preferences saved. Preview before enabling daily TV after any change."); }
+    if (data) { setProfile(data.profile); setDirty(false); setRun(null); setMessage("Preferences saved. Build or preview your lineup; daily updates are optional."); }
   }
   async function importTaste() {
     const data = await request({ action: "import-taste" });
@@ -38,12 +38,23 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
       setProfile(data.profile); setInterests(data.profile.interests.join("\n"));
       setAvoid(data.profile.avoid.join("\n")); setSeeds(data.profile.seedPlaylistIds.join("\n"));
       setDirty(false); setRun(null);
-      setMessage(`Imported a sample of ${data.likedCount} liked videos and ${data.subscriptionCount} subscriptions. Your private TV playlist is ready. Preview your lineup next.`);
+      setMessage(`Imported a sample of ${data.likedCount} liked videos and ${data.subscriptionCount} subscriptions. Click Build my TV playlist to add videos.`);
+    }
+  }
+  async function buildTv() {
+    const data = await request({ action: "start" });
+    if (data) {
+      setProfile(data.profile); setInterests(data.profile.interests.join("\n"));
+      setAvoid(data.profile.avoid.join("\n")); setSeeds(data.profile.seedPlaylistIds.join("\n"));
+      setDirty(false); setRun(data.run ?? null);
+      setMessage(data.runError ? `Playlist connected, but videos could not be added: ${data.runError}. Click Build my TV playlist to retry.` :
+        data.run?.videos.length ? `Added ${data.run.videos.length} videos. Open TV in YouTube to watch.` :
+        `No new videos were added. ${data.run?.warnings.join(" ") || "Try broader interests or a longer video limit, then build again."}`);
     }
   }
   async function scan(mode: "dry-run" | "live") {
     const data = await request({ action: "run", mode });
-    if (data) { setRun(data); setMessage(mode === "dry-run" ? "Preview complete. No videos were added. Live runs discover again, so the final lineup can differ." : "Your TV playlist has been topped up."); }
+    if (data) { setRun(data); setMessage(mode === "dry-run" ? "Preview complete. No videos were added. Live runs discover again, so the final lineup can differ." : data.videos.length ? `Added ${data.videos.length} videos to your TV playlist.` : "No new videos were added. Check the result below."); }
   }
   async function feedback(videoId: string, value: string) {
     const data = await request({ action: "feedback", videoId, feedback: value });
@@ -52,14 +63,14 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
   return <>
     <section className="panel">
       <h2>Your TV, your taste</h2>
-      <p>Start with your connected YouTube account. We use a sample of your likes and subscriptions to suggest interests, and create a private TV playlist if you need one. You can edit everything below.</p>
-      <div className="toolbar"><button disabled={busy} onClick={importTaste}>Set up from my YouTube account</button></div>
+      <p>Build a ready-to-watch queue from your YouTube likes and subscriptions. We create or reconnect your private TV playlist and add videos in the same step. Save any edits below before building.</p>
+      <div className="toolbar"><button disabled={busy || dirty} onClick={buildTv}>Build my TV playlist</button><button className="secondary" disabled={busy || dirty} onClick={importTaste}>Refresh interests from YouTube</button></div>
       <p>We cannot import YouTube&apos;s Home algorithm or watch history. Your account signals, chosen interests and feedback shape this queue.</p>
       <div className="grid">
         <label>Interests<textarea rows={8} value={interests} onChange={(e) => { setInterests(e.target.value); setDirty(true); }} placeholder={"Space documentaries\nCooking techniques\nFootball tactics"} /></label>
         <div>
           <label>TV playlist URL or ID<input value={profile.playlistId} onChange={(e) => patch({ playlistId: e.target.value })} /></label>
-          <p>The account setup button above creates your private TV playlist. To use another playlist you own, paste its link here.</p>
+          <p>Build my TV playlist creates a private playlist if needed, including if you deleted the previous one. To use another playlist you own, paste its link here.</p>
           <label>Optional seed playlists (up to 3, one per line)<textarea rows={3} value={seeds} onChange={(e) => { setSeeds(e.target.value); setDirty(true); }} /></label>
           <p>Seeds contribute candidates; subscriptions contribute rotating uploads. AI can compare these with your interests when enabled.</p>
         </div>
@@ -82,10 +93,10 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
       <div className="toolbar">
         <button disabled={busy} onClick={save}>Save preferences</button>
         <button className="secondary" disabled={busy || dirty} onClick={() => scan("dry-run")}>Preview lineup</button>
-        <button className="secondary" disabled={busy || dirty || !profile.liveEnabled} onClick={() => scan("live")}>Top up TV now</button>
+        <button className="secondary" disabled={busy || dirty || !profile.playlistId} onClick={() => scan("live")}>Add videos now</button>
         {profile.playlistId && !dirty ? <a className="button secondary" href={`https://www.youtube.com/playlist?list=${encodeURIComponent(profile.playlistId)}`} target="_blank" rel="noreferrer">Open TV in YouTube</a> : null}
       </div>
-      <p role="status" aria-live="polite">{busy ? "Working on your TV queue…" : message || (dirty ? "Save your changes before running." : "Save, preview, then enable daily TV and save again.")}</p>
+      <p role="status" aria-live="polite">{busy ? "Working on your TV queue. Finding and adding videos can take a minute." : message || (dirty ? "Save your changes before running." : "Click Build my TV playlist to add videos now. Daily updates are optional.")}</p>
     </section>
     {run ? <section className="panel"><h2>{run.mode === "dry-run" ? "Your preview" : "Added to your TV queue"}</h2>
       <p>{run.videos.length} videos · {Math.round(run.videos.reduce((n, v) => n + v.durationSeconds, 0) / 60)} minutes · {run.candidateCount} candidates considered</p>

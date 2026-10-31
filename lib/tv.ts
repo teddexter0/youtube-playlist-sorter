@@ -13,10 +13,10 @@ export function tvProfileHash(profile: TvProfile) {
 
 export type TvRun = { videos: (TvCandidate & { action: string })[]; candidateCount: number; warnings: string[]; mode: "dry-run" | "live" };
 
-export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live"): Promise<TvRun> {
+export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live", options: { manual?: boolean } = {}): Promise<TvRun> {
   const profile = tvProfileSchema.parse(user.tv ?? {});
   if (!profile.playlistId || !profile.interests.length) throw new Error("Save a TV playlist and at least one interest first.");
-  if (mode === "live" && (!profile.liveEnabled || user.tvPreviewHash !== tvProfileHash(profile))) {
+  if (mode === "live" && !options.manual && (!profile.liveEnabled || user.tvPreviewHash !== tvProfileHash(profile))) {
     throw new Error("Preview your saved TV preferences, then enable daily TV before running live.");
   }
   if (Object.entries(user.playlistIds).some(([key, id]) => key !== "tv" && id === profile.playlistId) || profile.seedPlaylistIds.includes(profile.playlistId)) {
@@ -28,6 +28,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live")
     const snap = await tx.get(ref);
     if ((snap.data()?.tvLockUntil ?? 0) > Date.now()) throw new Error("A TV run is already in progress. Try again shortly.");
     if (snap.data()?.tv && tvProfileHash(tvProfileSchema.parse(snap.data()?.tv)) !== tvProfileHash(profile)) throw new Error("TV preferences changed; reload before running again.");
+    if (mode === "live" && !options.manual && (!snap.data()?.tv?.liveEnabled || snap.data()?.tvPreviewHash !== tvProfileHash(profile))) throw new Error("Daily TV is paused or its preferences need a preview.");
     tx.update(ref, { tvLock: lease, tvLockUntil: Date.now() + 10 * 60000 });
   });
   try {
@@ -35,7 +36,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live")
     const playlist = await validatePlaylist(youtube, profile.playlistId);
     const channels = await youtube.channels.list({ part: ["id"], mine: true });
     if (!playlist || !channels.data.items?.some((c) => c.id === playlist.snippet?.channelId)) {
-      throw new Error("TV playlist must belong to your connected YouTube channel.");
+      throw new Error("TV playlist is missing or belongs to another channel. Use Build my TV playlist to reconnect it.");
     }
     const existingItems = await listPlaylistItems(youtube, profile.playlistId, 500);
     if (existingItems.length >= 40) {
@@ -99,6 +100,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live")
       warnings.push("AI is off: selection uses search relevance, metadata filters and diversity rules. Shared-TV suitability is not certified.");
     }
     const videos = selectTvMix(candidates, profile, excluded).slice(0, Math.max(0, 40 - existingItems.length));
+    if (!videos.length) warnings.push("No new eligible videos fit your saved interests and duration limits. Broaden interests or increase the maximum video length; videos already queued, previously delivered or marked seen are excluded.");
     const results: TvRun["videos"] = [];
     for (const video of videos) {
       if (mode === "live") {
@@ -113,7 +115,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live")
       }
       results.push({ ...video, action: mode === "live" ? "Added to TV" : "Would add to TV" });
     }
-    if (mode === "dry-run") await ref.update({ tvPreviewHash: tvProfileHash(profile) });
+    if (mode === "dry-run" || (options.manual && videos.length)) await ref.update({ tvPreviewHash: tvProfileHash(profile) });
     await ref.collection("logs").add({ userId: user.userId, level: "info", message: `${mode} TV run: ${results.length} selections`, createdAt: new Date().toISOString() });
     return { videos: results, candidateCount: candidates.length, warnings, mode };
   } finally {

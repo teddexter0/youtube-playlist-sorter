@@ -9,7 +9,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true }
 }).outputText, filename);
 const { defaultTvProfile } = require('../lib/tv-profile.ts');
-let state, creates, tasteFails, signedIn;
+let state, creates, tasteFails, signedIn, playlistExists, playlistError, runFails, runs;
 const ref = { update: async patch => {
   for (const [key, value] of Object.entries(patch)) {
     if (key === 'playlistIds.tv') state.playlistIds.tv = value;
@@ -29,14 +29,26 @@ Module._load = function(request, parent, ...args) {
       '@/lib/firebase': { adminDb: () => db },
       '@/lib/playlist': { parsePlaylistId: value => value },
       '@/lib/tv-profile': require('../lib/tv-profile.ts'),
-      '@/lib/tv': {},
+      '@/lib/tv': { runTvForUser: async (user, mode, options) => {
+        assert.equal(state.tvLockUntil, 0, 'setup releases the lease before filling');
+        runs.push({ user, mode, options });
+        if (runFails) throw new Error('YouTube quota exceeded');
+        return { mode, videos: [{ videoId: 'newvideo001', action: 'Added to TV' }], candidateCount: 5, warnings: [] };
+      } },
       '@/lib/google': {
         getYouTubeAccountTaste: async () => {
           if (tasteFails) throw new Error('YouTube unavailable');
           return { interests: ['Science', 'Football'], subscriptionCount: 12, likedCount: 25 };
         },
         listOwnPlaylistTitles: async () => new Set(), uniquePlaylistTitle: title => title,
-        youtubeForUser: () => ({ playlists: { insert: async args => { creates.push(args); return { data: { id: 'private-tv' } }; } } })
+        validatePlaylist: async () => {
+          if (playlistError) throw playlistError;
+          return playlistExists ? { snippet: { channelId: 'mine' } } : null;
+        },
+        youtubeForUser: () => ({
+          channels: { list: async () => ({ data: { items: [{ id: 'mine' }] } }) },
+          playlists: { insert: async args => { creates.push(args); return { data: { id: 'private-tv' } }; } }
+        })
       }
     };
     if (request in mocks) return mocks[request];
@@ -47,7 +59,7 @@ const { POST } = require('../app/api/tv/route.ts');
 Module._load = originalLoad;
 const reset = () => {
   state = { userId: 'user-a', playlistIds: {}, tv: { ...defaultTvProfile, avoid: ['spoilers'], sessionMinutes: 60 } };
-  creates = []; tasteFails = false; signedIn = true;
+  creates = []; tasteFails = false; signedIn = true; playlistExists = true; playlistError = null; runFails = false; runs = [];
 };
 const importTaste = () => POST({ json: async () => ({ action: 'import-taste' }) });
 
@@ -83,4 +95,58 @@ test('account setup requires sign-in and refuses an active TV action', async () 
   assert.equal((await importTaste()).status, 400);
   assert.equal(state.tvLock, 'other-run');
   assert.equal(creates.length, 0);
+});
+
+test('build creates and fills in one action while keeping daily updates off', async () => {
+  reset(); state.tv.interests = ['My saved topic'];
+  const result = await POST({ json: async () => ({ action: 'start' }) });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.run.videos.length, 1);
+  assert.equal(runs[0].user.tv.playlistId, 'private-tv');
+  assert.deepEqual(runs[0].user.tv.interests, ['My saved topic']);
+  assert.deepEqual(runs[0].options, { manual: true });
+  assert.equal(state.tv.liveEnabled, false);
+  assert.equal(creates.length, 1);
+});
+
+test('deleted playlists are recreated without clearing history or feedback', async () => {
+  for (const error of [null, { response: { status: 404 } }]) {
+    reset(); state.tv.playlistId = 'deleted-tv'; state.playlistIds.tv = 'deleted-tv';
+    state.tvHistory = ['seen-video']; state.tvFeedback = { seen: { action: 'watched' } };
+    playlistExists = false; playlistError = error;
+    const result = await POST({ json: async () => ({ action: 'start' }) });
+    assert.equal(result.body.profile.playlistId, 'private-tv');
+    assert.equal(creates.length, 1);
+    assert.deepEqual(state.tvHistory, ['seen-video']);
+    assert.equal(state.tvFeedback.seen.action, 'watched');
+    assert.equal(result.body.run.videos.length, 1);
+  }
+});
+
+test('quota or permission failures do not create extra playlists', async () => {
+  reset(); state.tv.playlistId = 'existing-tv';
+  playlistError = Object.assign(new Error('Permission denied'), { code: 403 });
+  const result = await POST({ json: async () => ({ action: 'start' }) });
+  assert.equal(result.status, 400);
+  assert.equal(creates.length, 0);
+  assert.equal(state.tvLockUntil, 0);
+});
+
+test('failed fill reports the reason and retries reuse the created playlist', async () => {
+  reset(); runFails = true;
+  const first = await POST({ json: async () => ({ action: 'start' }) });
+  assert.match(first.body.runError, /quota/);
+  assert.equal(first.body.profile.playlistId, 'private-tv');
+  assert.equal(first.body.run, undefined);
+  runFails = false;
+  const retry = await POST({ json: async () => ({ action: 'start' }) });
+  assert.equal(creates.length, 1);
+  assert.equal(retry.body.run.videos.length, 1);
+});
+
+test('building preserves an existing daily schedule and custom source choices', async () => {
+  reset(); state.tv.liveEnabled = true; state.tv.useSubscriptions = false;
+  const result = await POST({ json: async () => ({ action: 'start' }) });
+  assert.equal(result.body.profile.liveEnabled, true);
+  assert.equal(result.body.profile.useSubscriptions, false);
 });

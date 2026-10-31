@@ -187,3 +187,13 @@ test('Vercel OIDC authenticates AI requests when no gateway key is supplied', as
     }
   }
 });
+
+test('explicit manual fill adds videos with daily TV off; cron stays gated', async () => {
+  reset(); state.tv.liveEnabled = false; delete state.tvPreviewHash;
+  await assert.rejects(runTvForUser(state, 'live'), /Preview/);
+  const result = await runTvForUser(state, 'live', { manual: true });
+  assert.equal(result.videos.length, 2);
+  assert.equal(inserted.length, 2);
+  assert.equal(state.tv.liveEnabled, false);
+  assert.equal(state.tvPreviewHash, tvProfileHash(state.tv));
+});
