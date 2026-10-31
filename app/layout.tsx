@@ -3,8 +3,8 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "YouTube Playlist Auto-Janitor",
-  description: "Sort a custom YouTube Inbox playlist into curated playlists."
+  title: "YouTube Playlist Sorter + Personal TV",
+  description: "Discover a varied personal TV queue and sort your saved YouTube videos."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -13,9 +13,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <header className="topbar">
           <Link href="/" className="brand">
-            YouTube Playlist Auto-Janitor
+            YouTube Playlist Sorter
           </Link>
           <nav>
+            <Link href="/tv">Personal TV</Link>
             <Link href="/settings">Settings</Link>
             <Link href="/logs">Logs</Link>
             <Link href="/manual">Manual override</Link>

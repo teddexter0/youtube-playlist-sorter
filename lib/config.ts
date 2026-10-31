@@ -9,7 +9,7 @@ export const requiredPlaylistKeys = [
   "football"
 ] as const;
 
-export const optionalPlaylistKeys = ["done", "richReminders"] as const;
+export const optionalPlaylistKeys = ["done", "richReminders", "tv"] as const;
 
 export const allPlaylistKeys = [...requiredPlaylistKeys, ...optionalPlaylistKeys] as const;
 
@@ -24,6 +24,7 @@ export const playlistLabels: Record<PlaylistKey, string> = {
   news: "News",
   games: "games",
   football: "football",
+  tv: "TV",
   done: "Done",
   richReminders: "how to get rich reminders"
 };
@@ -43,6 +44,10 @@ export type UserSettings = {
   lastCleanupAt?: string;
   createdAt: string;
   updatedAt: string;
+  tv?: import("./tv-profile").TvProfile;
+  tvPreviewHash?: string;
+  tvHistory?: string[];
+  tvFeedback?: Record<string, { action: "like" | "skip" | "watched" | "block-channel"; channelId: string; at: string }>;
 };
 
 export type ProcessedStatus = "processed" | "kept" | "skipped" | "removed" | "error";

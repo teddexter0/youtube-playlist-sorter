@@ -9,23 +9,36 @@ export async function getUserSettings(userId: string): Promise<UserSettings | nu
 
 export async function upsertUserSettings(userId: string, patch: Partial<UserSettings>) {
   const now = new Date().toISOString();
-  await adminDb()
-    .collection("users")
-    .doc(userId)
-    .set(
-      {
+  const ref = adminDb().collection("users").doc(userId);
+  await adminDb().runTransaction(async (tx) => {
+    const existing = await tx.get(ref);
+    tx.set(ref, {
+      ...(!existing.exists ? {
         userId,
         playlistIds: {},
         liveSortingEnabled: false,
         cleanupEnabled: false,
         cleanupMode: "age",
         excludedCleanupPlaylistKeys: ["newNj"],
-        createdAt: now,
+        createdAt: now
+      } : {}),
         ...patch,
         updatedAt: now
       },
-      { merge: true }
-    );
+      { merge: true });
+  });
+}
+
+// Only these settings are safe to serialize into browser props/API responses.
+export function publicUserSettings(user: UserSettings): UserSettings {
+  return {
+    userId: user.userId, email: user.email, playlistIds: user.playlistIds,
+    liveSortingEnabled: user.liveSortingEnabled, sortingDryRunCompletedAt: user.sortingDryRunCompletedAt,
+    cleanupEnabled: user.cleanupEnabled, cleanupDryRunCompletedAt: user.cleanupDryRunCompletedAt,
+    cleanupMode: user.cleanupMode, excludedCleanupPlaylistKeys: user.excludedCleanupPlaylistKeys,
+    lastCleanupAt: user.lastCleanupAt, createdAt: user.createdAt, updatedAt: user.updatedAt,
+    tv: user.tv
+  };
 }
 
 export async function storeRefreshToken(userId: string, encryptedRefreshToken: string) {

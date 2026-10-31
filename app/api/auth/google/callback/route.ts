@@ -1,11 +1,16 @@
 import { google } from "googleapis";
 import { NextRequest, NextResponse } from "next/server";
 import { encryptSecret } from "@/lib/crypto";
-import { oauthClient } from "@/lib/google";
+import { getYouTubeAccountTaste, oauthClient } from "@/lib/google";
 import { setSessionCookie } from "@/lib/session";
-import { storeRefreshToken, upsertUserSettings } from "@/lib/store";
+import { getUserSettings, storeRefreshToken, upsertUserSettings } from "@/lib/store";
+import { defaultTvProfile } from "@/lib/tv-profile";
 
 export async function GET(request: NextRequest) {
+  const state = request.nextUrl.searchParams.get("state");
+  if (!state || state !== request.cookies.get("yt_oauth_state")?.value) {
+    return NextResponse.json({ error: "Google sign-in expired or could not be verified. Start again." }, { status: 400 });
+  }
   const code = request.nextUrl.searchParams.get("code");
   if (!code) return NextResponse.json({ error: "Missing OAuth code" }, { status: 400 });
 
@@ -23,6 +28,19 @@ export async function GET(request: NextRequest) {
     await storeRefreshToken(userId, encryptSecret(tokens.refresh_token));
   }
 
+  const existing = await getUserSettings(userId);
+  if (!existing?.tv) {
+    try {
+      const taste = await getYouTubeAccountTaste(google.youtube({ version: "v3", auth: client }));
+      await upsertUserSettings(userId, { tv: { ...defaultTvProfile, interests: taste.interests } });
+    } catch {
+      // Sign-in remains usable if account metadata is temporarily unavailable.
+      // The user can retry the import from Personal TV.
+    }
+  }
+
   setSessionCookie(userId);
-  return NextResponse.redirect(new URL("/settings", request.url));
+  const response = NextResponse.redirect(new URL("/tv", request.url));
+  response.cookies.delete("yt_oauth_state");
+  return response;
 }

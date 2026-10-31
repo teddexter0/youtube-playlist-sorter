@@ -3,7 +3,7 @@ import { z } from "zod";
 import { allPlaylistKeys } from "@/lib/config";
 import { parsePlaylistId } from "@/lib/playlist";
 import { getCurrentUserId } from "@/lib/session";
-import { getUserSettings, upsertUserSettings } from "@/lib/store";
+import { getUserSettings, publicUserSettings, upsertUserSettings } from "@/lib/store";
 
 const schema = z.object({
   playlistIds: z.record(z.string()).default({}),
@@ -16,7 +16,8 @@ const schema = z.object({
 export async function GET() {
   const userId = getCurrentUserId();
   if (!userId) return NextResponse.json({ error: "Not connected" }, { status: 401 });
-  return NextResponse.json(await getUserSettings(userId));
+  const user = await getUserSettings(userId);
+  return NextResponse.json(user ? publicUserSettings(user) : null);
 }
 
 export async function POST(request: NextRequest) {

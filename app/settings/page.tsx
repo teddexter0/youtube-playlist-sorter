@@ -1,7 +1,7 @@
 import Link from "next/link";
 import SettingsClient from "@/app/settings/SettingsClient";
 import { getCurrentUserId } from "@/lib/session";
-import { getUserSettings, upsertUserSettings } from "@/lib/store";
+import { getUserSettings, publicUserSettings, upsertUserSettings } from "@/lib/store";
 
 export default async function SettingsPage() {
   const userId = getCurrentUserId();
@@ -30,7 +30,7 @@ export default async function SettingsPage() {
           Home
         </Link>
       </div>
-      <SettingsClient initialSettings={settings!} />
+      <SettingsClient initialSettings={publicUserSettings(settings!)} />
     </>
   );
 }

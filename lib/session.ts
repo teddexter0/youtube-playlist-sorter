@@ -4,7 +4,9 @@ import crypto from "crypto";
 const cookieName = "ytjanitor_session";
 
 function secret(): string {
-  return process.env.GOOGLE_TOKEN_ENCRYPTION_KEY ?? "dev-only-session-secret";
+  const value = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY;
+  if (!value) throw new Error("GOOGLE_TOKEN_ENCRYPTION_KEY is required for sessions");
+  return value;
 }
 
 export function signUserId(userId: string): string {

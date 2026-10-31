@@ -1,20 +1,42 @@
 import { google, youtube_v3 } from "googleapis";
 import { decryptSecret } from "@/lib/crypto";
 import type { UserSettings } from "@/lib/config";
+import { envValue, missingGoogleConfig } from "@/lib/runtime-config";
+import { deriveTasteTopics } from "@/lib/taste-topics";
+
+export async function getYouTubeAccountTaste(youtube: youtube_v3.Youtube) {
+  const [likes, subscriptions] = await Promise.all([
+    youtube.videos.list({ part: ["snippet", "topicDetails"], myRating: "like", maxResults: 50 }),
+    youtube.subscriptions.list({ part: ["snippet"], mine: true, maxResults: 50 })
+  ]);
+  const channelIds = [...new Set((subscriptions.data.items ?? []).map((item) => item.snippet?.resourceId?.channelId).filter((id): id is string => Boolean(id)))];
+  const channels = channelIds.length ? (await youtube.channels.list({ part: ["snippet", "topicDetails"], id: channelIds })).data.items ?? [] : [];
+  const likedVideos = likes.data.items ?? [];
+  const names = channels.map((channel) => channel.snippet?.title ?? "");
+  return {
+    interests: deriveTasteTopics([...likedVideos, ...channels], names),
+    likedTitles: likedVideos.map((video) => video.snippet?.title ?? "").filter(Boolean),
+    likedVideoIds: likedVideos.map((video) => video.id ?? "").filter(Boolean),
+    subscriptionCount: channelIds.length,
+    likedCount: likedVideos.length
+  };
+}
 
 export function oauthClient() {
+  if (missingGoogleConfig().length) throw new Error("Google sign-in is not configured. See the setup page.");
   return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
+    envValue("GOOGLE_CLIENT_ID"),
+    envValue("GOOGLE_CLIENT_SECRET"),
+    envValue("GOOGLE_REDIRECT_URI")
   );
 }
 
-export function googleAuthUrl() {
+export function googleAuthUrl(state: string) {
   const client = oauthClient();
   return client.generateAuthUrl({
     access_type: "offline",
     prompt: "consent",
+    state,
     scope: [
       "openid",
       "email",

@@ -9,12 +9,13 @@ export default async function HomePage() {
   return (
     <>
       <section className="hero">
-        <h1>Sort your YouTube Inbox without touching Watch Later.</h1>
+        <h1>Less scrolling. More watching.</h1>
         <p>
-          Add videos to a custom Inbox playlist from phone or desktop. The app scans at 7pm EAT,
-          classifies each video with fixed rules, and files it into your existing playlists.
+          Build a varied TV queue from your interests, or sort videos you save to Inbox.
+          Open your playlist in YouTube on your phone and cast it to the TV.
         </p>
         <div className="toolbar">
+          <Link href="/tv" className="button">Set up personal TV</Link>
           {userId ? (
             <Link href="/settings" className="button">
               Open settings
