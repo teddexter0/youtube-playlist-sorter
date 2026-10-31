@@ -98,8 +98,7 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
       </article>)}</div>
       {!run.videos.length ? <p>No new picks fit this run. Broaden your interests, adjust duration or clear finished items from TV.</p> : null}
     </section> : null}
-    <section className="panel"><h2>Watch on your phone. Cast to your TV.</h2>
-      <p>Open the TV playlist in the normal YouTube app, play it, then use YouTube&apos;s Cast control. Your laptop does not need to stay on once scheduled hosting is configured. Starting playback and casting still need your tap.</p>
+    <section className="panel"><h2>Improve your recommendations</h2>
       <p>YouTube does not send this app your native skips or watch progress. Paste a video ID below to give feedback later. A skip excludes that video; a channel block excludes future videos from that channel. Likes guide AI ranking. Watched marks the video as seen. Feedback does not delete playlist items.</p>
       <label>Video ID<input value={feedbackId} onChange={(e) => setFeedbackId(e.target.value)} placeholder="11-character video ID" /></label>
       <div className="toolbar">{["like", "skip", "watched", "block-channel"].map((value) => <button className="secondary" key={value} disabled={busy || !/^[\w-]{11}$/.test(feedbackId)} onClick={() => feedback(feedbackId, value)}>{value.replace("-", " ")}</button>)}</div>
