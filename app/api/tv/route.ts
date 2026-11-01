@@ -10,10 +10,17 @@ import { defaultTvProfile } from "@/lib/tv-profile";
 import { getVideos, getYouTubeAccountTaste, listOwnPlaylistTitles, uniquePlaylistTitle, validatePlaylist, youtubeForUser } from "@/lib/google";
 import crypto from "crypto";
 import { tvErrorDetails } from "@/lib/tv-error";
+import { rememberSeen } from "@/lib/station-history";
+import { enableStations } from "@/lib/stations";
+import { parseIsoDurationSeconds } from "@/lib/playlist";
+import { listPlaylistItems } from "@/lib/google";
 
 export const maxDuration = 300;
 
 const actionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("autopilot"), enabled: z.boolean() }),
+  z.object({ action: z.literal("queue") }),
+  z.object({ action: z.literal("import-watched"), videoIds: z.array(z.string().regex(/^[\w-]{11}$/)).max(1000) }),
   z.object({ action: z.literal("start") }),
   z.object({ action: z.literal("import-taste") }),
   z.object({ action: z.literal("save"), profile: tvProfileSchema }),
@@ -32,6 +39,15 @@ export async function POST(request: NextRequest) {
     action = body.action;
     const user = await getUserSettings(userId);
     if (!user) return NextResponse.json({ error: "Settings not found." }, { status: 404 });
+    if (body.action === "autopilot") return NextResponse.json({ ok: true, profile: await enableStations(user, body.enabled), enabled: body.enabled });
+    if (body.action === "import-watched") return NextResponse.json({ ok: true, imported: await rememberSeen(userId, body.videoIds, "watch-history-import") });
+    if (body.action === "queue") {
+      if (!user.tv?.playlistId) return NextResponse.json({ videos: [] });
+      const yt = youtubeForUser(user);
+      const items = await listPlaylistItems(yt, user.tv.playlistId, 40);
+      const videos = await getVideos(yt, items.map(item => item.contentDetails?.videoId ?? "").filter(Boolean));
+      return NextResponse.json({ videos: videos.map(v => ({ videoId: v.id, title: v.snippet?.title ?? "", channelTitle: v.snippet?.channelTitle ?? "", durationSeconds: parseIsoDurationSeconds(v.contentDetails?.duration) })).sort((a,b) => a.durationSeconds-b.durationSeconds) }, { headers: { "cache-control": "private, no-store" } });
+    }
     if (body.action === "run") return NextResponse.json(await runTvForUser(user, body.mode, { manual: body.mode === "live" }));
     const ref = adminDb().collection("users").doc(userId);
     if (body.action === "import-taste" || body.action === "start") {
@@ -111,7 +127,7 @@ export async function POST(request: NextRequest) {
         if ((snap.data()?.tvLockUntil ?? 0) > Date.now()) throw new Error("Wait for the current TV run before editing preferences.");
         if (profile.liveEnabled && snap.data()?.tvPreviewHash !== tvProfileHash(profile)) throw new Error("Save with daily TV off, preview these preferences, then enable daily TV.");
         const topicsChanged = JSON.stringify(snap.data()?.tv?.interests ?? []) !== JSON.stringify(profile.interests);
-        tx.update(ref, { tv: profile, ...(topicsChanged ? { tvSearchCursor: 0 } : {}), updatedAt: new Date().toISOString() });
+        tx.update(ref, { tv: profile, ...(topicsChanged ? { tvSearchCursor: 0 } : {}), ...(!profile.liveEnabled ? { stationAutopilot: false } : {}), updatedAt: new Date().toISOString() });
       });
       return NextResponse.json({ ok: true, profile });
     }
@@ -121,12 +137,22 @@ export async function POST(request: NextRequest) {
     const channelId = video.snippet.channelId;
     await adminDb().runTransaction(async (tx) => {
       const snap = await tx.get(ref);
-      const feedback = { ...(snap.data()?.tvFeedback ?? {}), [body.videoId]: {
+      const feedback: NonNullable<import("@/lib/config").UserSettings["tvFeedback"]> = { ...(snap.data()?.tvFeedback ?? {}), [body.videoId]: {
         action: body.feedback, channelId, at: new Date().toISOString()
       } };
-      if (Object.keys(feedback).length > 300) throw new Error("Feedback limit reached. Export or clear older feedback before adding more.");
+      if (Object.keys(feedback).length > 300) {
+        const oldest = Object.entries(feedback).filter(([, value]) => value.action !== "block-channel").sort((a,b) => a[1].at.localeCompare(b[1].at));
+        for (const [id] of oldest.slice(0, Object.keys(feedback).length - 300)) delete feedback[id];
+      }
       tx.update(ref, { tvFeedback: feedback });
     });
+    if (body.feedback === "skip" || body.feedback === "watched") {
+      await rememberSeen(userId, [body.videoId], body.feedback);
+      const yt = youtubeForUser(user);
+      if (user.tv?.playlistId) for (const item of await listPlaylistItems(yt, user.tv.playlistId, 40)) {
+        if (item.contentDetails?.videoId === body.videoId && item.id) await yt.playlistItems.delete({ id: item.id });
+      }
+    }
     return NextResponse.json({ ok: true });
   } catch (error) {
     const details = tvErrorDetails(error);

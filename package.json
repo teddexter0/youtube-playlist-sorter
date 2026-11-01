@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/configure-personal-station.cjs",
     "start": "next start",
     "lint": "next lint",
     "test": "node --test tests/*.test.cjs"

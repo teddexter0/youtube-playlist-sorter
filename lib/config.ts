@@ -47,8 +47,12 @@ export type UserSettings = {
   tv?: import("./tv-profile").TvProfile;
   tvPreviewHash?: string;
   tvSearchCursor?: number;
+  stationProfiles?: Partial<Record<import("./station-rules").StationKey, import("./tv-profile").TvProfile>>;
+  stationAutopilot?: boolean;
+  personalStationVersion?: number;
+  stationCursors?: Partial<Record<import("./station-rules").StationKey, number>>;
   tvHistory?: string[];
-  tvRecent?: { videoId: string; category: import("./tv-profile").TvLane; channelId: string; at: string }[];
+  tvRecent?: { videoId: string; category: import("./tv-profile").TvLane; channelId: string; at: string; classicFootball?: boolean }[];
   tvFeedback?: Record<string, { action: "like" | "skip" | "watched" | "block-channel"; channelId: string; at: string }>;
 };
 

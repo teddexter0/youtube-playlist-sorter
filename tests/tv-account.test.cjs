@@ -9,7 +9,7 @@ require.extensions['.ts'] = (module, filename) => module._compile(ts.transpileMo
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true }
 }).outputText, filename);
 const { defaultTvProfile } = require('../lib/tv-profile.ts');
-let state, creates, tasteFails, signedIn, playlistExists, playlistError, runFails, runs;
+let state, creates, tasteFails, signedIn, playlistExists, playlistError, runFails, runs, imports;
 const ref = { update: async patch => {
   for (const [key, value] of Object.entries(patch)) {
     if (key === 'playlistIds.tv') state.playlistIds.tv = value;
@@ -23,6 +23,8 @@ const originalLoad = Module._load;
 Module._load = function(request, parent, ...args) {
   if (parent?.filename === path.resolve(__dirname, '../app/api/tv/route.ts')) {
     const mocks = {
+      '@/lib/station-history': { rememberSeen: async (userId, ids) => { imports.push({ userId, ids }); return ids.length; } },
+      '@/lib/stations': { enableStations: async () => state.tv },
       'next/server': { NextResponse: { json: (body, options) => ({ body, status: options?.status ?? 200 }) } },
       '@/lib/session': { getCurrentUserId: () => signedIn ? 'user-a' : null },
       '@/lib/store': { getUserSettings: async () => state },
@@ -62,6 +64,7 @@ Module._load = originalLoad;
 const reset = () => {
   state = { userId: 'user-a', playlistIds: {}, tv: { ...defaultTvProfile, avoid: ['spoilers'], sessionMinutes: 60 } };
   creates = []; tasteFails = false; signedIn = true; playlistExists = true; playlistError = null; runFails = false; runs = [];
+  imports = [];
 };
 const importTaste = () => POST({ json: async () => ({ action: 'import-taste' }) });
 
@@ -153,3 +156,14 @@ test('building preserves an existing daily schedule and custom source choices', 
   assert.equal(result.body.profile.useSubscriptions, false);
 });
 
+
+test('watch-history import is signed-in and account-scoped even with a forged body user ID', async () => {
+  reset();
+  const body = { action: 'import-watched', videoIds: ['abcdefghijk'], userId: 'other-account' };
+  const result = await POST({ json: async () => body });
+  assert.equal(result.status, 200);
+  assert.deepEqual(imports, [{ userId: 'user-a', ids: ['abcdefghijk'] }]);
+  signedIn = false;
+  assert.equal((await POST({ json: async () => body })).status, 401);
+  assert.equal(imports.length, 1);
+});

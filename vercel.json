@@ -1,5 +1,7 @@
 {
   "crons": [
+    { "path": "/api/cron/stations?slot=evening", "schedule": "0 16 * * *" },
+    { "path": "/api/cron/stations?slot=morning", "schedule": "0 6 * * 6" },
     {
       "path": "/api/cron/youtube-sort",
       "schedule": "0 16 * * *"

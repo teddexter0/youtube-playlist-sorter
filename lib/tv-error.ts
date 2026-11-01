@@ -9,6 +9,7 @@ export function tvErrorDetails(error: unknown) {
   const failure = error as { message?: string; response?: { status?: number; data?: { error?: string | { errors?: { reason?: string }[]; status?: string } } } } | null;
   const provider = failure?.response?.data?.error;
   const reason = typeof provider === "string" ? provider : provider?.errors?.[0]?.reason ?? provider?.status;
+  if (reason === "manualSortRequired") return { status: 400, code: "MANUAL_SORT_REQUIRED", error: "YouTube requires this playlist's ordering to be Manual before the app can keep videos shortest-first. Open the playlist in YouTube, set its sort order to Manual, then retry." };
   if (reason === "quotaExceeded" || reason === "dailyLimitExceeded") {
     return { status: 429, code: "YOUTUBE_QUOTA", error: "YouTube API quota is exhausted for this Google Cloud project. Wait for quota to reset before building again." };
   }

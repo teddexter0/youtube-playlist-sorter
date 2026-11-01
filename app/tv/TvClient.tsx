@@ -4,8 +4,11 @@ import Image from "next/image";
 import { useState } from "react";
 import { defaultTvProfile, exampleInterests, categoryForVideo, laneLabels, isArchive, type TvProfile } from "@/lib/tv-profile";
 import type { TvRun } from "@/lib/tv";
+import StationPlayer from "./StationPlayer";
+import { watchedIdsFromExport, namesFromImdbCsv } from "@/lib/history-import";
+import { stationNames, type StationKey } from "@/lib/station-rules";
 
-export default function TvClient({ initialProfile, aiAvailable, email }: { initialProfile: TvProfile; aiAvailable: boolean; email?: string }) {
+export default function TvClient({ initialProfile, aiAvailable, email, autopilot = false, stations, personal = false }: { initialProfile: TvProfile; aiAvailable: boolean; email?: string; autopilot?: boolean; stations?: Partial<Record<StationKey, TvProfile>>; personal?: boolean }) {
   const [profile, setProfile] = useState({ ...defaultTvProfile, ...initialProfile });
   const [interests, setInterests] = useState(initialProfile.interests.join("\n"));
   const [avoid, setAvoid] = useState(initialProfile.avoid.join("\n"));
@@ -19,6 +22,7 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
   const [run, setRun] = useState<TvRun | null>(null);
   const [feedbackId, setFeedbackId] = useState("");
   const [rated, setRated] = useState<Record<string, string>>({});
+  const [automatic, setAutomatic] = useState(autopilot);
   const lines = (value: string) => value.split("\n").map((s) => s.trim()).filter(Boolean);
   const patch = (value: Partial<TvProfile>) => {
     setProfile((p) => ({ ...p, ...value, ...(Object.keys(value).some((key) => key !== "liveEnabled") ? { liveEnabled: false } : {}) }));
@@ -43,7 +47,7 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
   }
   async function save() {
     const data = await request({ action: "save", profile: { ...profile, interests: lines(interests), avoid: lines(avoid), seedPlaylistIds: lines(seeds), favoriteCelebrities: celebrities.split(",").map((name) => name.trim()).filter(Boolean) } });
-    if (data) { applyProfile(data.profile); setRun(null); setMessage("Your house rules are saved. Build a mix whenever you're ready."); }
+    if (data) { applyProfile(data.profile); if (!data.profile.liveEnabled) setAutomatic(false); setRun(null); setMessage("Your house rules are saved. Turn autopilot on when you want automatic updates."); }
   }
   async function buildTv() {
     const data = await request({ action: "start" });
@@ -84,6 +88,28 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
     const data = await request({ action: "save", profile: next });
     if (data) { applyProfile(data.profile); await buildTv(); }
   }
+  async function toggleAutopilot() {
+    const data = await request({ action: "autopilot", enabled: !automatic });
+    if (data) { applyProfile(data.profile); setAutomatic(data.enabled); setMessage(data.enabled ? "Automatic playlists are on." : "Automatic playlists paused."); }
+  }
+  async function importHistory(file?: File) {
+    if (!file) return;
+    const ids = watchedIdsFromExport(await file.text());
+    if (!ids.length) { setHasError(true); setMessage("No YouTube watch links found. Choose the watch-history JSON or HTML from Google Takeout."); return; }
+    let imported = 0;
+    for (let i = 0; i < ids.length; i += 1000) {
+      const data = await request({ action: "import-watched", videoIds: ids.slice(i, i + 1000) });
+      if (!data) return;
+      imported += data.imported;
+    }
+    setMessage(imported + " watched video IDs imported. The original file stayed in your browser.");
+  }
+  async function importCelebrities(file?: File) {
+    if (!file) return;
+    const names = namesFromImdbCsv(await file.text());
+    if (!names.length) { setHasError(true); setMessage("No names found. Use the CSV export from your IMDb people list."); return; }
+    setCelebrities(names.join(", ")); patch({ favoriteCelebrities: names }); setMessage(names.length + " names ready. Save below to apply them.");
+  }
   const minutes = run ? Math.round(run.videos.reduce((n, video) => n + video.durationSeconds, 0) / 60) : 0;
   const lanes = new Set(run?.videos.map(categoryForVideo) ?? []);
 
@@ -91,6 +117,7 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
     <section className="station-control panel" id="your-station">
       <div className="section-heading"><div><p className="eyebrow">THE REMOTE IS YOURS</p><h2>Your couch.<br /><span className="cinema-type">Your rules.</span></h2></div><span className="station-stamp">MADE<br />FOR YOU<br /><span>✦</span></span></div>
       <div className="mix-summary"><span>↗ {profile.discoveryPercent}% room for surprise</span><span>▦ Max {profile.maxPerTopic} per topic</span><span>◷ {profile.sessionMinutes} minute mix</span></div>
+      <div className="autopilot-card"><div><h3>{automatic ? "Your station is on autopilot." : "Less setup. More sofa."}</h3><p>{personal ? "Your viewing brief is saved to your account. No taste questionnaire needed." : "Start with your YouTube likes and subscriptions. Fine-tuning is optional."}</p><p>TV around 7pm daily. Faith Friday evening. Pop culture and life skills Saturday around 9am. Nairobi time.</p></div><button className="secondary" disabled={busy || dirty} onClick={toggleAutopilot}>{automatic ? "Pause automatic playlists" : "Turn on automatic playlists"}</button></div>
       <div className="main-controls"><button className="big-build playful" disabled={busy || dirty} onClick={buildTv}><span>▶</span>{busy ? "Finding the good stuff…" : "Build my TV playlist"}</button>
         {profile.playlistId && !dirty ? <a className="button secondary" href={`https://www.youtube.com/playlist?list=${encodeURIComponent(profile.playlistId)}`} target="_blank" rel="noreferrer">Open in YouTube ↗</a> : null}
         <button className="text-button" disabled={busy || dirty || !profile.playlistId} onClick={() => scan("dry-run")}>Just a sneak peek</button></div>
@@ -98,8 +125,10 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
         {busy ? "One moment. We're looking for a little of everything. This can take a minute." : message || (dirty ? "Save your changes below before building." : "Press play on a better evening. We'll fill a private YouTube playlist for you.")}
         {hasError && errorCode ? <> <code>{errorCode}</code></> : null}{hasError && errorCode === "RECONNECT_GOOGLE" ? <> <a href="/api/auth/google/start">Reconnect Google</a></> : null}
       </p>
+      <StationPlayer playlistId={profile.playlistId} />
+      {stations ? <div className="station-shelf">{(Object.keys(stationNames) as StationKey[]).filter(key => key !== "tv").map(key => <div key={key}><h3>{stationNames[key]}</h3><p>{key === "faith" ? "Friday · 7pm · your subscriptions" : key === "childhood" ? "Daily · your nostalgia corner" : "Saturday · 9am"}</p>{stations[key]?.playlistId ? <a href={"https://www.youtube.com/playlist?list=" + stations[key]!.playlistId} target="_blank" rel="noreferrer">Open playlist ↗</a> : <span>Created automatically when connected</span>}</div>)}</div> : null}
       <div className="house-rules"><div><span className="mini-icon">✳</span><h3>Comfort watching</h3><p>{profile.lightViewing ? "Heavy talks, lectures and raunchy dating formats sit this one out." : "All formats can join, within your other filters."}</p></div><div><span className="mini-icon">▦</span><h3>Less of the same</h3><p>No more than four picks from one topic, including what&apos;s already in your queue.</p></div><div><span className="mini-icon">↝</span><h3>A little plot twist</h3><p>Fresh lanes and older discoveries. Familiar favourites with room to wander.</p></div></div>
-      <details className="tuning-drawer" open={dirty || undefined}><summary>Fine-tune your channels <span>+</span></summary>
+      <details className="tuning-drawer" open={dirty || undefined}><summary>Optional fine-tuning <span>+</span></summary>
         <div className="toolbar"><button className="secondary" disabled={busy} onClick={weekendMix}>Build the weekend mix ✦</button><button className="text-button" disabled={busy || dirty} onClick={importTaste}>Refresh from my YouTube taste</button></div>
         <p className="fineprint">The cable-TV mix: fresh trailers, SNL, chess, Gameranx / Falcon, European football, WWE, awards, fashion, wildlife, art, books, Spanish, music, useful tech and a little news. Topics rotate across builds; up to four picks per lane and two per channel. Your playlist, hard passes and references stay yours.</p>
         <div className="grid"><label>What keeps you curious?<textarea rows={7} value={interests} onChange={(e) => editText(setInterests, e.target.value)} placeholder={"Football highlights\nFilm behind the scenes\nTravel and food"} /><small>One interest per line, up to 60. Every account has its own list.</small></label>
@@ -109,13 +138,13 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
             <label>Older gems target<input type="range" min={0} max={100} step={5} value={profile.archivePercent} onChange={(e) => patch({ archivePercent: Number(e.target.value) })} /><strong>{profile.archivePercent}% older discoveries</strong></label></div>
           <label>Hard passes<textarea rows={3} value={avoid} onChange={(e) => editText(setAvoid, e.target.value)} placeholder={"Spoilers\nPranks"} /></label>
           <label>Celebrities you enjoy<input value={celebrities} onChange={(e) => editText(setCelebrities, e.target.value)} placeholder="Names, separated by commas" /><small>Short interviews match these names. With optional AI, your likes can also guide celebrity affinity. No names and AI off means interviews wait; SNL sketches and award monologues can still play.</small></label>
+          <label>Import your IMDb favourites<input type="file" accept=".csv,text/csv" onChange={(e) => void importCelebrities(e.target.files?.[0])} /><small>The linked IMDb list blocks automated reading. Its CSV export fills the names for you.</small></label>
           <label>A playlist that gets your taste<textarea rows={3} value={seeds} onChange={(e) => editText(setSeeds, e.target.value)} placeholder="Up to three playlist links, one per line" /><small>Optional references. They supply candidates; your filters still apply.</small></label>
           <label>Your TV playlist<input value={profile.playlistId} onChange={(e) => patch({ playlistId: e.target.value })} /><small>Leave empty to create one. Deleted TV playlists reconnect on the next build.</small></label>
           <label>Football flavour<select value={profile.footballFocus} onChange={(e) => patch({ footballFocus: e.target.value as TvProfile["footballFocus"] })}><option value="all">Follow my interests</option><option value="european-world-cup">European football &amp; World Cup</option></select></label>
         </div>
         <div className="toggle-grid"><label className="checkbox"><input type="checkbox" checked={profile.lightViewing} onChange={(e) => patch({ lightViewing: e.target.checked })} />Keep it light</label><label className="checkbox"><input type="checkbox" checked={profile.sharedTv} onChange={(e) => patch({ sharedTv: e.target.checked })} />Shared-room screening</label><label className="checkbox"><input type="checkbox" checked={profile.useSubscriptions} onChange={(e) => patch({ useSubscriptions: e.target.checked })} />Include subscriptions</label><label className="checkbox"><input type="checkbox" checked={profile.useYouTubeLikes} onChange={(e) => patch({ useYouTubeLikes: e.target.checked })} />Learn from my likes</label><label className="checkbox"><input type="checkbox" checked={profile.monthlyMotorsport} onChange={(e) => patch({ monthlyMotorsport: e.target.checked })} />F1 / motorsport: monthly cameo</label><label className="checkbox"><input type="checkbox" checked={profile.aiEnabled} disabled={!aiAvailable && !profile.aiEnabled} onChange={(e) => patch({ aiEnabled: e.target.checked })} />Optional AI taste check {aiAvailable ? "" : "(unavailable)"}</label></div>
         <p className="fineprint">AI is optional and off by default. Enabling it sends your chosen interests, avoid terms, video metadata and liked-video titles to the configured AI provider and may incur provider charges, separate from ChatGPT. Filters use metadata, not full video review, so suitability is never guaranteed.</p>
-        <label className="checkbox daily-switch"><input type="checkbox" checked={profile.liveEnabled} onChange={(e) => patch({ liveEnabled: e.target.checked })} /><span>Have it ready every day at 7pm Nairobi time.<small>Build or preview this mix first, then enable and save. Changes pause daily TV until you review them.</small></span></label>
         <div className="toolbar"><button disabled={busy} onClick={save}>Save my house rules</button><button className="secondary" disabled={busy || dirty || !profile.playlistId} onClick={() => scan("live")}>Add more videos now</button></div>
       </details>
     </section>
@@ -127,7 +156,7 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
           <div className="feedback-row">{["like", "skip", "watched", "block-channel"].map((value) => <button key={value} disabled={busy} aria-pressed={rated[video.videoId] === value} onClick={() => feedback(video.videoId, value)}>{rated[video.videoId] === value ? "✓ " : ""}{value === "block-channel" ? "less of this channel" : value}</button>)}</div></div>
       </article>)}</div>{!run.videos.length ? <div className="empty-lineup"><span>✳</span><h3>A little room for tomorrow.</h3><p>No new picks fit this run. Broaden your interests or clear finished videos from your queue.</p></div> : null}
     </section> : null}
-    <div className="grid extras-grid"><details className="panel"><summary>Teach your station a little <span>↗</span></summary><p>Native YouTube skips and watch progress don&apos;t reach us. Tell us about a video here and we&apos;ll remember it for your next mix. Feedback changes future picks; manage the current queue in YouTube.</p><label>Video ID<input value={feedbackId} onChange={(e) => setFeedbackId(e.target.value)} placeholder="11-character video ID" /></label><div className="toolbar">{["like", "skip", "watched", "block-channel"].map((value) => <button className="secondary" key={value} disabled={busy || !/^[\w-]{11}$/.test(feedbackId)} onClick={() => feedback(feedbackId, value)}>{value.replace("-", " ")}</button>)}</div></details>
+    <div className="grid extras-grid"><details className="panel"><summary>One-time history import &amp; feedback <span>+</span></summary><p>YouTube does not share native watch history or skips. Import your Google Takeout watch-history JSON or HTML once to exclude older watched videos. Only IDs are uploaded. App skips and completed videos are remembered and removed from TV.</p><label>Import watched videos<input type="file" accept=".json,.html,application/json,text/html" disabled={busy} onChange={(e) => void importHistory(e.target.files?.[0])} /></label><label>Video ID<input value={feedbackId} onChange={(e) => setFeedbackId(e.target.value)} placeholder="11-character video ID" /></label><div className="toolbar">{["like", "skip", "watched", "block-channel"].map((value) => <button className="secondary" key={value} disabled={busy || !/^[\w-]{11}$/.test(feedbackId)} onClick={() => feedback(feedbackId, value)}>{value.replace("-", " ")}</button>)}</div></details>
       <details className="panel"><summary>Account &amp; privacy <span>↗</span></summary><p>Connected as <strong>{email ?? "your Google account"}</strong>. Your station uses your account only. YouTube&apos;s private Home algorithm and watch history aren&apos;t imported.</p><div className="toolbar"><a className="button secondary" href="/api/auth/google/start">Switch Google account</a><form action="/api/auth/logout" method="post"><button type="submit" className="text-button">Sign out</button></form></div><button className="text-button" disabled={busy} onClick={disconnect}>Disconnect &amp; delete my app data</button><p className="fineprint"><a href="/privacy">Privacy policy</a> · <a href="https://myaccount.google.com/connections" target="_blank" rel="noreferrer">Google connection controls ↗</a></p></details></div>
   </>;
 }

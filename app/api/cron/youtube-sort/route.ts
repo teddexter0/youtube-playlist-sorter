@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
   const tvUsers = await adminDb().collection("users").where("tv.liveEnabled", "==", true).get();
   const tvSummaries = [];
   for (const doc of tvUsers.docs) {
+    if (doc.data().stationAutopilot) continue;
     try {
       const result = await runTvForUser(doc.data() as UserSettings, "live");
       tvSummaries.push({ userId: doc.id, ok: true, count: result.videos.length });
