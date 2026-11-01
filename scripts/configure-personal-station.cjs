@@ -32,12 +32,7 @@ async function main() {
     if (!current.encryptedRefreshToken) { console.log(JSON.stringify({ stationProvisioning: "reconnect-needed" })); continue; }
     try {
       const { google } = require("googleapis");
-      const keyRaw = clean("GOOGLE_TOKEN_ENCRYPTION_KEY");
-      const key = /^[a-f0-9]{64}$/i.test(keyRaw) ? Buffer.from(keyRaw, "hex") : crypto.createHash("sha256").update(keyRaw).digest();
-      const [iv, tag, payload] = current.encryptedRefreshToken.split(".");
-      const decipher = crypto.createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
-      decipher.setAuthTag(Buffer.from(tag, "base64url"));
-      const refresh = Buffer.concat([decipher.update(Buffer.from(payload, "base64url")), decipher.final()]).toString("utf8");
+      const refresh = require("../lib/crypto.ts").decryptSecret(current.encryptedRefreshToken);
       const auth = new google.auth.OAuth2(clean("GOOGLE_CLIENT_ID"), clean("GOOGLE_CLIENT_SECRET"), clean("GOOGLE_REDIRECT_URI"));
       auth.setCredentials({ refresh_token: refresh });
       const yt = google.youtube({ version: "v3", auth });
@@ -61,7 +56,12 @@ async function main() {
         console.log(JSON.stringify({ initialStationBuild: result.map(row => ({ station: row.station, added: row.added ?? 0, failed: Boolean(row.error), reason: !row.error ? undefined : /quota/i.test(row.error) ? "YOUTUBE_QUOTA" : /invalid.grant|revoked|token/i.test(row.error) ? "RECONNECT_GOOGLE" : /manualSort|position/i.test(row.error) ? "MANUAL_SORT_REQUIRED" : "STATION_REQUEST_FAILED" })) }));
         if (result.every(row => !row.error)) await doc.ref.update({ personalStationInitialBuildVersion: personalVersion });
       }
-    } catch (error) { console.log(JSON.stringify({ stationProvisioning: "pending", reason: /invalid.grant|revoked|token/i.test(error.message) ? "RECONNECT_GOOGLE" : /quota/i.test(error.message) ? "YOUTUBE_QUOTA" : "PROVIDER_REQUEST_FAILED" })); }
+    } catch (error) {
+      const provider = error.response?.data?.error;
+      const detail = typeof provider === "string" ? provider : provider?.errors?.[0]?.reason ?? provider?.status ?? error.code;
+      const safeDetail = typeof detail === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(detail) ? detail : "UNCLASSIFIED";
+      console.log(JSON.stringify({ stationProvisioning: "pending", reason: /invalid.grant|revoked|token/i.test(error.message) ? "RECONNECT_GOOGLE" : /quota/i.test(error.message) ? "YOUTUBE_QUOTA" : "PROVIDER_REQUEST_FAILED", status: error.response?.status ?? 0, detail: safeDetail }));
+    }
   }
   console.log(JSON.stringify({ personalStationMigration: "complete", matchedAccounts: matches.size, updatedAccounts: changed, version: personalVersion }));
 }

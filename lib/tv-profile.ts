@@ -169,7 +169,7 @@ export function planTvSearches(profile: TvProfile, cursor: number) {
 export function passesMetadataFilter(video: TvCandidate, profile: TvProfile, now = Date.now()) {
   const text = `${video.title} ${video.description} ${video.channelTitle}`.toLowerCase();
   if ((profile.strictComfort || profile.stationMode !== "tv") && !fitsStation(video, profile)) return false;
-  if (profile.strictComfort && /\b(occult|occultism|demon|demonic|satan|satanic|witchcraft|gothic|dark fantasy|erotic|sexual|sex scene|raunchy|striptease|culture war|political rant)\b/i.test(`${video.title} ${video.channelTitle}`)) return false;
+  if (profile.strictComfort && /\b(occult(?:ic|ism)?|demons?|demonic|satan(?:ic)?|witchcraft|sorcery|gothic|dark fantasy|horror|conjuring|annabelle|exorcist|erotic|sexual|sex scene|raunchy|striptease|culture war|political rant|anti.woke rant)\b/i.test(`${video.title} ${video.channelTitle} ${video.description.slice(0, 400)}`)) return false;
   if (profile.strictComfort && categoryForVideo(video) === "gaming" && /\b(horror|occult|gothic|diablo|elden ring|bloodborne|dark souls|baldur.?s gate|silent hill|resident evil|doom|outlast)\b/i.test(`${video.title} ${video.description.slice(0, 400)}`)) return false;
   if (profile.avoid.some((term) => text.includes(term.toLowerCase()))) return false;
   if (profile.sharedTv && /\b(porn|nude|nudity|nsfw|gore|racial slur|hate speech|sex tape|fuck|shit)\b/i.test(text)) return false;
