@@ -14,10 +14,12 @@ import { rememberSeen } from "@/lib/station-history";
 import { enableStations } from "@/lib/stations";
 import { parseIsoDurationSeconds } from "@/lib/playlist";
 import { listPlaylistItems } from "@/lib/google";
+import { recordPlayback } from "@/lib/station-refresh";
 
 export const maxDuration = 300;
 
 const actionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("progress"), videoId: z.string().regex(/^[\w-]{11}$/), seconds: z.number().min(0).max(15), eventId: z.string().uuid() }),
   z.object({ action: z.literal("autopilot"), enabled: z.boolean() }),
   z.object({ action: z.literal("queue") }),
   z.object({ action: z.literal("import-watched"), videoIds: z.array(z.string().regex(/^[\w-]{11}$/)).max(1000) }),
@@ -39,6 +41,7 @@ export async function POST(request: NextRequest) {
     action = body.action;
     const user = await getUserSettings(userId);
     if (!user) return NextResponse.json({ error: "Settings not found." }, { status: 404 });
+    if (body.action === "progress") return NextResponse.json({ ok: true, progress: await recordPlayback(userId, body.videoId, body.seconds, body.eventId) }, { headers: { "cache-control": "private, no-store" } });
     if (body.action === "autopilot") return NextResponse.json({ ok: true, profile: await enableStations(user, body.enabled), enabled: body.enabled });
     if (body.action === "import-watched") return NextResponse.json({ ok: true, imported: await rememberSeen(userId, body.videoIds, "watch-history-import") });
     if (body.action === "queue") {
@@ -46,7 +49,7 @@ export async function POST(request: NextRequest) {
       const yt = youtubeForUser(user);
       const items = await listPlaylistItems(yt, user.tv.playlistId, 40);
       const videos = await getVideos(yt, items.map(item => item.contentDetails?.videoId ?? "").filter(Boolean));
-      return NextResponse.json({ videos: videos.map(v => ({ videoId: v.id, title: v.snippet?.title ?? "", channelTitle: v.snippet?.channelTitle ?? "", durationSeconds: parseIsoDurationSeconds(v.contentDetails?.duration) })).sort((a,b) => a.durationSeconds-b.durationSeconds) }, { headers: { "cache-control": "private, no-store" } });
+      return NextResponse.json({ videos: videos.filter(v => !["watched", "skip", "block-channel"].includes(user.tvFeedback?.[v.id ?? ""]?.action ?? "")).map(v => ({ videoId: v.id, title: v.snippet?.title ?? "", channelTitle: v.snippet?.channelTitle ?? "", durationSeconds: parseIsoDurationSeconds(v.contentDetails?.duration) })).sort((a,b) => a.durationSeconds-b.durationSeconds) }, { headers: { "cache-control": "private, no-store" } });
     }
     if (body.action === "run") return NextResponse.json(await runTvForUser(user, body.mode, { manual: body.mode === "live" }));
     const ref = adminDb().collection("users").doc(userId);
@@ -148,10 +151,7 @@ export async function POST(request: NextRequest) {
     });
     if (body.feedback === "skip" || body.feedback === "watched") {
       await rememberSeen(userId, [body.videoId], body.feedback);
-      const yt = youtubeForUser(user);
-      if (user.tv?.playlistId) for (const item of await listPlaylistItems(yt, user.tv.playlistId, 40)) {
-        if (item.contentDetails?.videoId === body.videoId && item.id) await yt.playlistItems.delete({ id: item.id });
-      }
+      if (body.feedback === "watched") await recordPlayback(userId, body.videoId, 0, crypto.randomUUID(), true);
     }
     return NextResponse.json({ ok: true });
   } catch (error) {

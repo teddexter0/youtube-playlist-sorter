@@ -7,14 +7,16 @@ import { deriveTasteTopics } from "@/lib/taste-topics";
 export async function getYouTubeAccountTaste(youtube: youtube_v3.Youtube) {
   const [likes, subscriptions] = await Promise.all([
     youtube.videos.list({ part: ["snippet", "topicDetails"], myRating: "like", maxResults: 50 }),
-    youtube.subscriptions.list({ part: ["snippet"], mine: true, maxResults: 50 })
+    getSubscribedChannelIds(youtube)
   ]);
-  const channelIds = [...new Set((subscriptions.data.items ?? []).map((item) => item.snippet?.resourceId?.channelId).filter((id): id is string => Boolean(id)))];
-  const channels = channelIds.length ? (await youtube.channels.list({ part: ["snippet", "topicDetails"], id: channelIds })).data.items ?? [] : [];
+  const channelIds = [...subscriptions].slice(0, 500);
+  const groups = Array.from({ length: Math.ceil(channelIds.length / 50) }, (_, i) => channelIds.slice(i * 50, i * 50 + 50));
+  const channels = (await Promise.all(groups.map(async id => (await youtube.channels.list({ part: ["snippet", "topicDetails"], id })).data.items ?? []))).flat();
   const likedVideos = likes.data.items ?? [];
   const names = channels.map((channel) => channel.snippet?.title ?? "");
   return {
     interests: deriveTasteTopics([...likedVideos, ...channels], names),
+    subscriptionTopics: deriveTasteTopics(channels, names),
     likedTitles: likedVideos.map((video) => video.snippet?.title ?? "").filter(Boolean),
     likedVideoIds: likedVideos.map((video) => video.id ?? "").filter(Boolean),
     subscriptionCount: channelIds.length,

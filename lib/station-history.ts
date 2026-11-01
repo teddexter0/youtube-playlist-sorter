@@ -9,7 +9,7 @@ export async function rememberSeen(userId: string, ids: string[], source: string
   const unique = [...new Set(ids)];
   for (let i = 0; i < unique.length; i += 400) {
     const batch = adminDb().batch();
-    for (const id of unique.slice(i, i + 400)) batch.set(adminDb().collection("users").doc(userId).collection("watched").doc(id), { at: new Date().toISOString(), source }, { merge: true });
+    for (const id of unique.slice(i, i + 400)) batch.set(adminDb().collection("users").doc(userId).collection("watched").doc(id), { at: new Date().toISOString(), source, ...(source === "watched" ? { qualifiedWatch: true } : {}) }, { merge: true });
     await batch.commit();
   }
   return unique.length;

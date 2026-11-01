@@ -57,9 +57,10 @@ const db = { collection: () => ({ doc: () => ref }), runTransaction: async fn =>
 const originalLoad = Module._load;
 Module._load = function(request, parent, ...args) {
   if (parent?.filename === path.resolve(__dirname, '../lib/tv.ts')) {
+    if (request === './station-refresh') return { prepareStationRefresh: async (_id, _key, _yt, items) => ({ items, held: false, token: '' }), finishStationRefresh: async () => {} };
     if (request === './station-history') return { knownSeenIds: async () => new Set(), rememberSeen: async () => {} };
     if (request === './station-sources') return { stationSources: async () => ({ origins: new Map(), warnings: [] }) };
-    if (request === './playlist-order') return { orderExistingQueue: async () => [], trimKnownQueue: async (_yt, items) => items };
+    if (request === './playlist-order') return { orderExistingQueue: async () => [] };
     if (request === './firebase') return { adminDb: () => db };
     if (request === './google') return {
       youtubeForUser: () => ({

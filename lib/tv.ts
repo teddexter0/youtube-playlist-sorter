@@ -5,7 +5,8 @@ import { getSubscribedChannelIds, getYouTubeAccountTaste, getVideos, listPlaylis
 import { parseIsoDurationSeconds } from "./playlist";
 import { knownSeenIds, rememberSeen } from "./station-history";
 import { stationSources } from "./station-sources";
-import { orderExistingQueue, trimKnownQueue } from "./playlist-order";
+import { orderExistingQueue } from "./playlist-order";
+import { prepareStationRefresh, finishStationRefresh } from "./station-refresh";
 import type { StationKey } from "./station-rules";
 import { rankTvCandidates } from "./tv-ai";
 import { selectTvMix, passesMetadataFilter, tvProfileSchema, categoryForVideo, planTvSearches, type TvCandidate, type TvProfile, type TvLane } from "./tv-profile";
@@ -17,7 +18,7 @@ export function tvProfileHash(profile: TvProfile) {
 
 export type TvRun = { videos: (TvCandidate & { action: string })[]; candidateCount: number; warnings: string[]; mode: "dry-run" | "live" };
 
-export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live", options: { manual?: boolean; stationKey?: StationKey } = {}): Promise<TvRun> {
+export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live", options: { manual?: boolean; stationKey?: StationKey; cycleId?: string } = {}): Promise<TvRun> {
   const profile = tvProfileSchema.parse(user.tv ?? {});
   const key = options.stationKey ?? "tv";
   if (!profile.playlistId || !profile.interests.length) throw new Error("Save a TV playlist and at least one interest first.");
@@ -45,10 +46,16 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
       throw new Error("TV playlist is missing or belongs to another channel. Use Build my TV playlist to reconnect it.");
     }
     let existingItems = await listPlaylistItems(youtube, profile.playlistId, 500);
-    if (mode === "live" && profile.rollingQueue) existingItems = await trimKnownQueue(youtube, existingItems, user.tvRecent ?? [], profile.mandatoryDaily);
+    let refreshToken = "";
+    if (mode === "live") {
+      const refresh = await prepareStationRefresh(user.userId, key, youtube, existingItems, options.cycleId);
+      if (refresh.held) return { videos: [], candidateCount: 0, mode, warnings: [`Keeping your TV queue: ${refresh.gate?.watched} of ${refresh.gate?.total} videos qualify as watched. ${refresh.gate?.required} are needed before the next refresh. Two minutes of playback, a completed shorter clip, or an explicit watched mark counts. Native YouTube progress is unavailable.`] };
+      existingItems = refresh.items; refreshToken = refresh.token;
+    }
     if (existingItems.length >= 40) {
+      if (mode === "live") await finishStationRefresh(user.userId, key, refreshToken);
       if (mode === "dry-run") await ref.update({ tvPreviewHash: tvProfileHash(profile) });
-      return { videos: [], candidateCount: 0, mode, warnings: ["TV already has 40 or more videos. Remove finished items in YouTube before topping up; existing items are never deleted here."] };
+      return { videos: [], candidateCount: 0, mode, warnings: ["The queue is at capacity; no more videos were added."] };
     }
     const existing = new Set(existingItems.map((v) => v.contentDetails?.videoId ?? ""));
     const accountTaste = profile.useYouTubeLikes ? await getYouTubeAccountTaste(youtube) : null;
@@ -57,11 +64,15 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     const blockedChannels = new Set(Object.values(user.tvFeedback ?? {}).filter((f) => f.action === "block-channel").map((f) => f.channelId));
     const warnings: string[] = [];
     const origins = new Map<string, { topic: string; discovery: boolean; subscribed?: boolean; officialTrailer?: boolean }>();
-    const add = (id: string | null | undefined, topic: string, discovery = false) => { if (id && !origins.has(id)) origins.set(id, { topic, discovery }); };
+    const add = (id: string | null | undefined, topic: string, discovery = false, subscribed = false) => { if (id) { if (!origins.has(id)) origins.set(id, { topic, discovery, subscribed }); else if (subscribed) origins.get(id)!.subscribed = true; } };
     // Keep the same eight-call budget while covering twice as many topics.
     const day = Math.floor(Date.now() / 86400000);
     const cursor = key === "tv" ? user.tvSearchCursor ?? 0 : user.stationCursors?.[key] ?? 0;
     const topics = planTvSearches(profile, cursor);
+    if (profile.useSubscriptions && accountTaste?.subscriptionTopics?.length && topics.some(topic => topic.discovery)) {
+      const lastDiscovery = topics.map(topic => topic.discovery).lastIndexOf(true);
+      topics[lastDiscovery] = { topic: accountTaste.subscriptionTopics[day % accountTaste.subscriptionTopics.length], discovery: true, archive: false, recentDays: 30 };
+    }
     if (profile.preferredHandles.length || profile.mandatoryDaily || profile.stationMode === "faith") {
       const direct = await stationSources(user, profile);
       direct.origins.forEach((origin, id) => origins.set(id, origin)); warnings.push(...direct.warnings);
@@ -87,14 +98,14 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     }
     if (profile.useSubscriptions && profile.stationMode !== "faith") {
       const subscribed = Array.from(await getSubscribedChannelIds(youtube));
-      const chosen = Array.from({ length: Math.min(4, subscribed.length) }, (_, i) => subscribed[(day * 4 + i) % subscribed.length]);
+      const chosen = Array.from({ length: Math.min(6, subscribed.length) }, (_, i) => subscribed[(day * 6 + i) % subscribed.length]);
       if (chosen.length) {
         const details = await youtube.channels.list({ part: ["contentDetails"], id: chosen });
         for (const channel of details.data.items ?? []) {
           const uploads = channel.contentDetails?.relatedPlaylists?.uploads;
           if (!uploads) continue;
           const items = await listPlaylistItems(youtube, uploads, 50);
-          for (const item of items.slice(0, 8)) add(item.contentDetails?.videoId, "Your subscriptions");
+          for (const item of items.slice(0, 8)) add(item.contentDetails?.videoId, "Your subscriptions", false, true);
         }
       }
     }
@@ -113,6 +124,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
         reason: `Found via ${origins.get(video.id)?.topic}; metadata match, not a content review.`
       };
       candidate.category = categoryForVideo(candidate);
+      if (candidate.subscribed) candidate.score += 0.05;
       if (/\bgameranx\b/i.test(candidate.channelTitle)) candidate.score += /\bfalcon\b/i.test(`${candidate.title} ${candidate.description}`) ? 0.15 : 0.05;
       if (/austin evans|marques brownlee|mkbhd|cleo abram|wrestlinggifs|critical drinker/i.test(candidate.channelTitle)) candidate.score += 0.1;
       if (profile.allowClassicFootball && /\b201\d\b|\b2020\b/.test(candidate.title) && categoryForVideo(candidate) === "football") { candidate.score = Math.max(0.85, candidate.score); candidate.classicFootball = true; }
@@ -167,6 +179,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     }
     if (key === "tv" && (mode === "dry-run" || (options.manual && videos.length))) await ref.update({ tvPreviewHash: tvProfileHash(profile) });
     if (mode === "live") await ref.update({ [key === "tv" ? "tvSearchCursor" : `stationCursors.${key}`]: cursor + topics.filter((topic) => !topic.discovery).length });
+    if (mode === "live") await finishStationRefresh(user.userId, key, refreshToken);
     await ref.collection("logs").add({ userId: user.userId, level: "info", message: `${mode} TV run: ${results.length} selections`, createdAt: new Date().toISOString() });
     return { videos: results, candidateCount: candidates.length, warnings, mode };
   } finally {

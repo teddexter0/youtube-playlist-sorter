@@ -33,10 +33,10 @@ test('faith is subscription-only and life-skills talks are allowed in their own 
 });
 
 test('Nairobi Friday/Saturday schedules use different slots and never leak weekly jobs into other days',()=>{
-  assert.deepEqual(dueStations('evening',new Date('2026-11-06T16:00:00Z')),['tv','childhood','faith']);
-  assert.deepEqual(dueStations('morning',new Date('2026-11-07T06:00:00Z')),['popculture','lifeskills']);
+  assert.deepEqual(dueStations('evening',new Date('2026-11-06T16:00:00Z')),['tv','faith']);
+  assert.deepEqual(dueStations('morning',new Date('2026-11-07T06:00:00Z')),['childhood','popculture','lifeskills']);
   assert.deepEqual(dueStations('morning',new Date('2026-11-08T06:00:00Z')),[]);
-  assert.deepEqual(dueStations('evening',new Date('2026-11-08T16:00:00Z')),['tv','childhood']);
+  assert.deepEqual(dueStations('evening',new Date('2026-11-08T16:00:00Z')),['tv']);
 });
 
 test('personal presets do not seed other users with the owner interests or celebrity list',()=>{
@@ -89,7 +89,7 @@ Module._load=function(request,parent,...args){
   if(parent?.filename===path.resolve(__dirname,'../lib/playlist-order.ts')&&request==='./google')return {};
   return load.call(this,request,parent,...args);
 };
-const { orderExistingQueue,trimKnownQueue }=require('../lib/playlist-order.ts');
+const { orderExistingQueue }=require('../lib/playlist-order.ts');
 Module._load=load;
 test('existing entries are reordered by duration before insertion without deleting videos',async()=>{
   const updates=[];const yt={playlistItems:{update:async request=>updates.push(request.requestBody)}};
@@ -97,11 +97,4 @@ test('existing entries are reordered by duration before insertion without deleti
   const raw=[{id:'long',contentDetails:{duration:'PT20M'}},{id:'short',contentDetails:{duration:'PT2M'}}];
   assert.deepEqual(await orderExistingQueue(yt,'TV',items,raw),[120,1200]);
   assert.equal(updates.length,1);assert.equal(updates[0].id,'short-item');assert.equal(updates[0].snippet.position,0);
-});
-test('rolling queues retire only known app deliveries and preserve manual additions',async()=>{
-  const deleted=[];const yt={playlistItems:{delete:async ({id})=>deleted.push(id)}};
-  const items=[{id:'manual',contentDetails:{videoId:'manual'}},{id:'old-app',contentDetails:{videoId:'old'}},{id:'fresh-app',contentDetails:{videoId:'fresh'}}];
-  const history=[{videoId:'old',category:'technology',at:'2026-10-01T00:00:00Z'},{videoId:'fresh',category:'technology',at:'2026-10-31T00:00:00Z'}];
-  const kept=await trimKnownQueue(yt,items,history,false,now);
-  assert.deepEqual(deleted,['old-app']);assert.deepEqual(kept.map(v=>v.id),['manual','fresh-app']);
 });

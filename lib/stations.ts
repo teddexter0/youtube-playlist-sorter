@@ -59,7 +59,7 @@ export async function runStations(user: UserSettings, slot: "evening" | "morning
     if (!claimed) continue;
     try {
       const profile = await ensurePlaylist(user, key);
-      const result = await runTvForUser({ ...user, tv: profile }, "live", { manual: true, stationKey: key });
+      const result = await runTvForUser({ ...user, tv: profile }, "live", { manual: true, stationKey: key, cycleId: claim.id });
       await claim.set({ complete: true, added: result.videos.length, warnings: result.warnings, at: new Date().toISOString() });
       summaries.push({ station: key, added: result.videos.length });
     } catch (error) {

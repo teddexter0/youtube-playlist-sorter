@@ -17,6 +17,6 @@ export function fitsStation(v: TvCandidate, p: TvProfile) {
 }
 export function dueStations(slot: "evening" | "morning", date = new Date()): StationKey[] {
   const day = new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Nairobi", weekday: "short" }).format(date);
-  return slot === "morning" ? day === "Sat" ? ["popculture", "lifeskills"] : [] : ["tv", "childhood", ...(day === "Fri" ? ["faith" as const] : [])];
+  return slot === "morning" ? day === "Sat" ? ["childhood", "popculture", "lifeskills"] : [] : ["tv", ...(day === "Fri" ? ["faith" as const] : [])];
 }
 export function sortedVideoOrder<T extends { durationSeconds: number }>(videos: T[]) { return [...videos].sort((a, b) => a.durationSeconds - b.durationSeconds); }

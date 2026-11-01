@@ -23,6 +23,7 @@ const originalLoad = Module._load;
 Module._load = function(request, parent, ...args) {
   if (parent?.filename === path.resolve(__dirname, '../app/api/tv/route.ts')) {
     const mocks = {
+      '@/lib/station-refresh': { recordPlayback: async (userId, videoId, seconds) => ({ userId, videoId, seconds }) },
       '@/lib/station-history': { rememberSeen: async (userId, ids) => { imports.push({ userId, ids }); return ids.length; } },
       '@/lib/stations': { enableStations: async () => state.tv },
       'next/server': { NextResponse: { json: (body, options) => ({ body, status: options?.status ?? 200 }) } },
@@ -166,4 +167,16 @@ test('watch-history import is signed-in and account-scoped even with a forged bo
   signedIn = false;
   assert.equal((await POST({ json: async () => body })).status, 401);
   assert.equal(imports.length, 1);
+});
+
+test('playback progress uses signed-in identity and bounds every sample', async () => {
+  reset();
+  const body = { action: 'progress', userId: 'other-account', videoId: 'abcdefghijk', seconds: 10, eventId: 'e22732a4-f0c5-4ab6-9a56-9643e4addcb0' };
+  const result = await POST({ json: async () => body });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.progress.userId, 'user-a');
+  assert.equal((await POST({ json: async () => ({ ...body, seconds: 120 }) })).status, 400);
+  assert.equal((await POST({ headers: { get: () => 'https://evil.example' }, json: async () => body })).status, 403);
+  signedIn = false;
+  assert.equal((await POST({ json: async () => body })).status, 401);
 });
