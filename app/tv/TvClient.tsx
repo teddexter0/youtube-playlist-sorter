@@ -12,6 +12,8 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState("");
+  const [hasError, setHasError] = useState(false);
+  const [errorCode, setErrorCode] = useState("");
   const [run, setRun] = useState<TvRun | null>(null);
   const [feedbackId, setFeedbackId] = useState("");
   const [rated, setRated] = useState<Record<string, string>>({});
@@ -19,13 +21,13 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
   const patch = (value: Partial<TvProfile>) => { setProfile((p) => ({ ...p, ...value })); setDirty(true); };
 
   async function request(body: object) {
-    setBusy(true); setMessage("");
+    setBusy(true); setMessage(""); setHasError(false); setErrorCode("");
     try {
       const response = await fetch("/api/tv", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Request failed.");
+      if (!response.ok) { setErrorCode(data.code ?? ""); throw new Error(data.error ?? `Request failed (HTTP ${response.status}).`); }
       return data;
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Request failed."); return null; }
+    } catch (error) { setHasError(true); setMessage(error instanceof Error ? error.message : "Request failed."); return null; }
     finally { setBusy(false); }
   }
   async function save() {
@@ -38,7 +40,7 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
       setProfile(data.profile); setInterests(data.profile.interests.join("\n"));
       setAvoid(data.profile.avoid.join("\n")); setSeeds(data.profile.seedPlaylistIds.join("\n"));
       setDirty(false); setRun(null);
-      setMessage(`Imported a sample of ${data.likedCount} liked videos and ${data.subscriptionCount} subscriptions. Click Build my TV playlist to add videos.`);
+      setMessage(`Refreshed interests from ${data.likedCount} likes and ${data.subscriptionCount} subscriptions. Click Build my TV playlist to add videos.`);
     }
   }
   async function buildTv() {
@@ -47,6 +49,7 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
       setProfile(data.profile); setInterests(data.profile.interests.join("\n"));
       setAvoid(data.profile.avoid.join("\n")); setSeeds(data.profile.seedPlaylistIds.join("\n"));
       setDirty(false); setRun(data.run ?? null);
+      setHasError(Boolean(data.runError)); setErrorCode(data.errorCode ?? "");
       setMessage(data.runError ? `Playlist connected, but videos could not be added: ${data.runError}. Click Build my TV playlist to retry.` :
         data.run?.videos.length ? `Added ${data.run.videos.length} videos. Open TV in YouTube to watch.` :
         `No new videos were added. ${data.run?.warnings.join(" ") || "Try broader interests or a longer video limit, then build again."}`);
@@ -65,6 +68,11 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
       <h2>Your TV, your taste</h2>
       <p>Build a ready-to-watch queue from your YouTube likes and subscriptions. We create or reconnect your private TV playlist and add videos in the same step. Save any edits below before building.</p>
       <div className="toolbar"><button disabled={busy || dirty} onClick={buildTv}>Build my TV playlist</button><button className="secondary" disabled={busy || dirty} onClick={importTaste}>Refresh interests from YouTube</button></div>
+      <p role={hasError ? "alert" : "status"} aria-live={hasError ? "assertive" : "polite"} className={hasError ? "tv-error" : undefined}>
+        {busy ? "Working on your TV queue. Finding and adding videos can take a minute." : message || (dirty ? "Save your changes before running." : "Click Build my TV playlist to add videos now. Daily updates are optional.")}
+        {hasError && errorCode ? <> <code>{errorCode}</code></> : null}
+        {hasError && errorCode === "RECONNECT_GOOGLE" ? <> <a href="/api/auth/google/start">Reconnect Google</a></> : null}
+      </p>
       <p>We cannot import YouTube&apos;s Home algorithm or watch history. Your account signals, chosen interests and feedback shape this queue.</p>
       <div className="grid">
         <label>Interests<textarea rows={8} value={interests} onChange={(e) => { setInterests(e.target.value); setDirty(true); }} placeholder={"Space documentaries\nCooking techniques\nFootball tactics"} /></label>
@@ -96,7 +104,6 @@ export default function TvClient({ initialProfile, aiAvailable }: { initialProfi
         <button className="secondary" disabled={busy || dirty || !profile.playlistId} onClick={() => scan("live")}>Add videos now</button>
         {profile.playlistId && !dirty ? <a className="button secondary" href={`https://www.youtube.com/playlist?list=${encodeURIComponent(profile.playlistId)}`} target="_blank" rel="noreferrer">Open TV in YouTube</a> : null}
       </div>
-      <p role="status" aria-live="polite">{busy ? "Working on your TV queue. Finding and adding videos can take a minute." : message || (dirty ? "Save your changes before running." : "Click Build my TV playlist to add videos now. Daily updates are optional.")}</p>
     </section>
     {run ? <section className="panel"><h2>{run.mode === "dry-run" ? "Your preview" : "Added to your TV queue"}</h2>
       <p>{run.videos.length} videos · {Math.round(run.videos.reduce((n, v) => n + v.durationSeconds, 0) / 60)} minutes · {run.candidateCount} candidates considered</p>

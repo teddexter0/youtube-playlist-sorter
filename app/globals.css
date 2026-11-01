@@ -226,3 +226,4 @@ th {
     grid-template-columns: 1fr;
   }
 }
+.tv-error { border: 1px solid #d65c5c; border-radius: 8px; padding: 12px 16px; background: #2b1717; color: #ffdada; overflow-wrap: anywhere; }

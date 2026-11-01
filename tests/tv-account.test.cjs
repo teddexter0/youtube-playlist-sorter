@@ -29,6 +29,7 @@ Module._load = function(request, parent, ...args) {
       '@/lib/firebase': { adminDb: () => db },
       '@/lib/playlist': { parsePlaylistId: value => value },
       '@/lib/tv-profile': require('../lib/tv-profile.ts'),
+      '@/lib/tv-error': require('../lib/tv-error.ts'),
       '@/lib/tv': { runTvForUser: async (user, mode, options) => {
         assert.equal(state.tvLockUntil, 0, 'setup releases the lease before filling');
         runs.push({ user, mode, options });
@@ -150,3 +151,4 @@ test('building preserves an existing daily schedule and custom source choices', 
   assert.equal(result.body.profile.liveEnabled, true);
   assert.equal(result.body.profile.useSubscriptions, false);
 });
+

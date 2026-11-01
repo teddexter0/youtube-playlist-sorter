@@ -134,7 +134,6 @@ export async function validatePlaylist(youtube: youtube_v3.Youtube, playlistId: 
   const res = await youtube.playlists.list({
     part: ["id", "snippet"],
     id: [playlistId],
-    mine: false,
     maxResults: 1
   });
   return res.data.items?.[0] ?? null;

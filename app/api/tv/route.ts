@@ -9,6 +9,7 @@ import { runTvForUser, tvProfileHash } from "@/lib/tv";
 import { defaultTvProfile } from "@/lib/tv-profile";
 import { getVideos, getYouTubeAccountTaste, listOwnPlaylistTitles, uniquePlaylistTitle, validatePlaylist, youtubeForUser } from "@/lib/google";
 import crypto from "crypto";
+import { tvErrorDetails } from "@/lib/tv-error";
 
 export const maxDuration = 300;
 
@@ -24,8 +25,10 @@ const actionSchema = z.discriminatedUnion("action", [
 export async function POST(request: NextRequest) {
   const userId = getCurrentUserId();
   if (!userId) return NextResponse.json({ error: "Connect Google first." }, { status: 401 });
+  let action = "parse";
   try {
     const body = actionSchema.parse(await request.json());
+    action = body.action;
     const user = await getUserSettings(userId);
     if (!user) return NextResponse.json({ error: "Settings not found." }, { status: 404 });
     if (body.action === "run") return NextResponse.json(await runTvForUser(user, body.mode, { manual: body.mode === "live" }));
@@ -48,9 +51,9 @@ export async function POST(request: NextRequest) {
           try {
             playlist = await validatePlaylist(youtube, playlistId);
           } catch (error) {
-            // Only recreate confirmed missing playlists, never quota/auth failures.
-            const failure = error as { response?: { status?: number }; code?: number };
-            if (failure.response?.status !== 404 && failure.code !== 404) throw error;
+            // Only a confirmed missing playlist warrants replacement; quota/auth
+            // failures must not create a new empty playlist on every attempt.
+            if ((error as { response?: { status?: number }; code?: number }).response?.status !== 404 && (error as { code?: number }).code !== 404) throw error;
           }
           if (!playlist) playlistId = "";
           else {
@@ -80,14 +83,17 @@ export async function POST(request: NextRequest) {
         });
       }
       if (body.action === "start") {
-        // The builder takes its own lease; setup's lease has been released above.
+        // Release setup's lease before the queue builder acquires its own lease.
+        // Read again so playlist recovery and partial-success retries use saved data.
         try {
           const current = await getUserSettings(userId);
           if (!current) throw new Error("Reload and reconnect your Google account.");
           const run = await runTvForUser(current, "live", { manual: true });
           return NextResponse.json({ ...setup, run });
         } catch (error) {
-          return NextResponse.json({ ...setup, runError: error instanceof Error ? error.message : "Could not fill the TV playlist." });
+          const details = tvErrorDetails(error);
+          console.warn("TV fill failed", { action, code: details.code, status: details.status });
+          return NextResponse.json({ ...setup, runError: details.error, errorCode: details.code });
         }
       }
       return NextResponse.json(setup);
@@ -121,6 +127,8 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof z.ZodError ? "Invalid TV settings or action." : error instanceof Error ? error.message : "TV request failed." }, { status: 400 });
+    const details = tvErrorDetails(error);
+    console.warn("TV request failed", { action, code: details.code, status: details.status });
+    return NextResponse.json({ error: details.error, code: details.code }, { status: details.status });
   }
 }
