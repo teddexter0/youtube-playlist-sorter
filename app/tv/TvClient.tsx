@@ -10,6 +10,7 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
   const [interests, setInterests] = useState(initialProfile.interests.join("\n"));
   const [avoid, setAvoid] = useState(initialProfile.avoid.join("\n"));
   const [seeds, setSeeds] = useState(initialProfile.seedPlaylistIds.join("\n"));
+  const [celebrities, setCelebrities] = useState((initialProfile.favoriteCelebrities ?? []).join(", "));
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState("");
@@ -38,9 +39,10 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
   function applyProfile(next: TvProfile) {
     setProfile({ ...defaultTvProfile, ...next }); setInterests(next.interests.join("\n"));
     setAvoid(next.avoid.join("\n")); setSeeds(next.seedPlaylistIds.join("\n")); setDirty(false);
+    setCelebrities((next.favoriteCelebrities ?? []).join(", "));
   }
   async function save() {
-    const data = await request({ action: "save", profile: { ...profile, interests: lines(interests), avoid: lines(avoid), seedPlaylistIds: lines(seeds) } });
+    const data = await request({ action: "save", profile: { ...profile, interests: lines(interests), avoid: lines(avoid), seedPlaylistIds: lines(seeds), favoriteCelebrities: celebrities.split(",").map((name) => name.trim()).filter(Boolean) } });
     if (data) { applyProfile(data.profile); setRun(null); setMessage("Your house rules are saved. Build a mix whenever you're ready."); }
   }
   async function buildTv() {
@@ -77,8 +79,8 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
     finally { setBusy(false); }
   }
   async function weekendMix() {
-    const next = { ...profile, interests: exampleInterests, avoid: lines(avoid), seedPlaylistIds: lines(seeds),
-      lightViewing: true, sharedTv: true, maxPerTopic: 4, discoveryPercent: 35, footballFocus: "european-world-cup", monthlyMotorsport: true, liveEnabled: false };
+    const next = { ...profile, interests: exampleInterests, avoid: lines(avoid), seedPlaylistIds: lines(seeds), favoriteCelebrities: celebrities.split(",").map((name) => name.trim()).filter(Boolean),
+      lightViewing: true, sharedTv: true, maxPerTopic: 4, discoveryPercent: 25, footballFocus: "european-world-cup", monthlyMotorsport: true, liveEnabled: false };
     const data = await request({ action: "save", profile: next });
     if (data) { applyProfile(data.profile); await buildTv(); }
   }
@@ -99,13 +101,14 @@ export default function TvClient({ initialProfile, aiAvailable, email }: { initi
       <div className="house-rules"><div><span className="mini-icon">✳</span><h3>Comfort watching</h3><p>{profile.lightViewing ? "Heavy talks, lectures and raunchy dating formats sit this one out." : "All formats can join, within your other filters."}</p></div><div><span className="mini-icon">▦</span><h3>Less of the same</h3><p>No more than four picks from one topic, including what&apos;s already in your queue.</p></div><div><span className="mini-icon">↝</span><h3>A little plot twist</h3><p>Fresh lanes and older discoveries. Familiar favourites with room to wander.</p></div></div>
       <details className="tuning-drawer" open={dirty || undefined}><summary>Fine-tune your channels <span>+</span></summary>
         <div className="toolbar"><button className="secondary" disabled={busy} onClick={weekendMix}>Build the weekend mix ✦</button><button className="text-button" disabled={busy || dirty} onClick={importTaste}>Refresh from my YouTube taste</button></div>
-        <p className="fineprint">Weekend preset: European football and World Cup, visual tech, travel, movie magic, games, wildlife, music, brief Kenya news and a monthly motorsport cameo. This changes only your saved profile and fills your queue.</p>
-        <div className="grid"><label>What keeps you curious?<textarea rows={7} value={interests} onChange={(e) => editText(setInterests, e.target.value)} placeholder={"Football highlights\nFilm behind the scenes\nTravel and food"} /><small>One interest per line. Every account has its own list.</small></label>
+        <p className="fineprint">The cable-TV mix: fresh trailers, SNL, chess, Gameranx / Falcon, European football, WWE, awards, fashion, wildlife, art, books, Spanish, music, useful tech and a little news. Topics rotate across builds; up to four picks per lane and two per channel. Your playlist, hard passes and references stay yours.</p>
+        <div className="grid"><label>What keeps you curious?<textarea rows={7} value={interests} onChange={(e) => editText(setInterests, e.target.value)} placeholder={"Football highlights\nFilm behind the scenes\nTravel and food"} /><small>One interest per line, up to 60. Every account has its own list.</small></label>
           <div className="tuning-stack"><label>Time for tonight <input type="range" min={15} max={240} step={15} value={profile.sessionMinutes} onChange={(e) => patch({ sessionMinutes: Number(e.target.value) })} /><strong>{profile.sessionMinutes} minutes</strong></label>
             <label>A little outside your usual<input type="range" min={0} max={60} step={5} value={profile.discoveryPercent} onChange={(e) => patch({ discoveryPercent: Number(e.target.value) })} /><strong>{profile.discoveryPercent}% discovery target</strong></label>
             <div className="grid"><label>Longest video (min)<input type="number" min={2} max={120} value={profile.maxVideoMinutes} onChange={(e) => patch({ maxVideoMinutes: Number(e.target.value) })} /></label><label>Max per topic<input type="number" min={1} max={4} value={profile.maxPerTopic} onChange={(e) => patch({ maxPerTopic: Number(e.target.value) })} /></label></div>
             <label>Older gems target<input type="range" min={0} max={100} step={5} value={profile.archivePercent} onChange={(e) => patch({ archivePercent: Number(e.target.value) })} /><strong>{profile.archivePercent}% older discoveries</strong></label></div>
           <label>Hard passes<textarea rows={3} value={avoid} onChange={(e) => editText(setAvoid, e.target.value)} placeholder={"Spoilers\nPranks"} /></label>
+          <label>Celebrities you enjoy<input value={celebrities} onChange={(e) => editText(setCelebrities, e.target.value)} placeholder="Names, separated by commas" /><small>Short interviews match these names. With optional AI, your likes can also guide celebrity affinity. No names and AI off means interviews wait; SNL sketches and award monologues can still play.</small></label>
           <label>A playlist that gets your taste<textarea rows={3} value={seeds} onChange={(e) => editText(setSeeds, e.target.value)} placeholder="Up to three playlist links, one per line" /><small>Optional references. They supply candidates; your filters still apply.</small></label>
           <label>Your TV playlist<input value={profile.playlistId} onChange={(e) => patch({ playlistId: e.target.value })} /><small>Leave empty to create one. Deleted TV playlists reconnect on the next build.</small></label>
           <label>Football flavour<select value={profile.footballFocus} onChange={(e) => patch({ footballFocus: e.target.value as TvProfile["footballFocus"] })}><option value="all">Follow my interests</option><option value="european-world-cup">European football &amp; World Cup</option></select></label>

@@ -48,3 +48,45 @@ test('a recurring channel cannot exceed the limit through repeated top-ups', () 
   const mix = selectTvMix([video('a', { channelId: 'repeated' }), video('b')], defaultTvProfile, new Set(), now, { channelCounts: new Map([['repeated', 2]]) });
   assert.deepEqual(mix.map(v => v.videoId), ['b']);
 });
+
+test('wide preset survives validation and discovery visits every interest without more than eight calls', () => {
+  const { tvProfileSchema, exampleInterests, planTvSearches } = require('../lib/tv-profile.ts');
+  const profile = tvProfileSchema.parse({ interests: exampleInterests });
+  assert.ok(profile.interests.length > 40);
+  const visited = new Set();
+  let cursor = 0;
+  for (let run = 0; run < 10; run++) {
+    const queries = planTvSearches(profile, cursor);
+    assert.ok(queries.length <= 8);
+    assert.equal(new Set(queries.map(q => q.topic)).size, queries.length);
+    const personal = queries.filter(q => !q.discovery);
+    personal.forEach(q => visited.add(q.topic));
+    cursor += personal.length;
+    for (const q of queries) {
+      if (/highlights|trailer|hardware|TechCrunch/i.test(q.topic)) assert.equal(q.archive, false, q.topic);
+    }
+  }
+  assert.equal(visited.size, exampleInterests.length);
+});
+
+test('celebrity affinity permits short favourites without opening heavy conversations', () => {
+  const favourite = { ...defaultTvProfile, favoriteCelebrities: ['Tom Holland'] };
+  assert.equal(passesMetadataFilter(video('a', { title: 'Tom Holland funny interview', channelTitle: 'The Tonight Show' }), favourite, now), true);
+  assert.equal(passesMetadataFilter(video('a', { title: 'An unfamiliar actor interview', channelTitle: 'The Tonight Show' }), favourite, now), false);
+  assert.equal(passesMetadataFilter(video('a', { title: 'Tom Holland podcast', channelTitle: 'The Tonight Show' }), favourite, now), false);
+  assert.equal(passesMetadataFilter(video('a', { title: 'Tom Holland interview', durationSeconds: 3600 }), favourite, now), false);
+  for (const title of ['SNL funny sketch', 'Oscars opening monologue', 'Victoria Secret runway fashion show']) {
+    assert.equal(passesMetadataFilter(video('a', { title }), defaultTvProfile, now), true, title);
+  }
+});
+
+test('fresh trailers admit short official clips; old trailers and stale sports stay out', () => {
+  assert.equal(passesMetadataFilter(video('a', { title: 'Official movie trailer', durationSeconds: 95 }), defaultTvProfile, now), true);
+  assert.equal(passesMetadataFilter(video('a', { title: 'Official movie trailer', durationSeconds: 95, publishedAt: '2025-01-01' }), defaultTvProfile, now), false);
+  for (const title of ['WWE highlights', 'Ligue 1 highlights', 'Bundesliga match highlights']) {
+    assert.equal(passesMetadataFilter(video('a', { title, publishedAt: '2026-10-01' }), defaultTvProfile, now), false, title);
+  }
+  assert.equal(categoryForVideo(video('a', { title: 'Gameranx Falcon: new games' })), 'gaming');
+  assert.equal(categoryForVideo(video('a', { title: 'Magnus Carlsen brilliant chess game' })), 'chess');
+  assert.equal(categoryForVideo(video('a', { title: 'Met Gala best looks' })), 'fashion');
+});

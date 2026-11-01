@@ -2,7 +2,8 @@ import { z } from "zod";
 
 export const tvProfileSchema = z.object({
   playlistId: z.string().max(200).default(""),
-  interests: z.array(z.string().trim().min(2).max(100)).max(12).default([]),
+  interests: z.array(z.string().trim().min(2).max(100)).max(60).default([]),
+  favoriteCelebrities: z.array(z.string().trim().min(2).max(80)).max(30).default([]),
   seedPlaylistIds: z.array(z.string().max(200)).max(3).default([]),
   avoid: z.array(z.string().trim().min(2).max(100)).max(30).default([]),
   useSubscriptions: z.boolean().default(true),
@@ -24,23 +25,46 @@ export const defaultTvProfile = tvProfileSchema.parse({});
 
 // Only loaded after the owner explicitly chooses this example in their own profile.
 export const exampleInterests = [
-  "European football match highlights", "FIFA World Cup highlights",
-  "new technology inventions demonstrations", "travel destinations city walks",
-  "movie practical effects behind the scenes", "story driven video game gameplay",
-  "wildlife short documentaries", "live saxophone music performances",
-  "Formula 1 monthly race recap", "Kenya local news technology headlines"
+  "new official movie trailers", "Saturday Night Live comedy sketches",
+  "Premier League official match highlights", "Gameranx Falcon new games commentary",
+  "physical hardware inventions hands on reviews", "chess brilliant games explained",
+  "Paris fashion week runway best looks", "wildlife short documentaries",
+  "Champions League official highlights", "Oscars Golden Globes funny opening monologue",
+  "useful new software apps tools demonstrations", "film practical effects behind the scenes",
+  "WWE official weekly highlights", "art painting creative process",
+  "celebrity late night interview funny clips", "nutrition science short animated explainer",
+  "La Liga official match highlights", "new television series official trailers",
+  "Met Gala red carpet fashion looks", "Spanish language everyday culture short videos",
+  "Bundesliga official highlights", "technology innovation TechCrunch demonstrations",
+  "live saxophone jazz music performance", "fun creative skill challenges",
+  "Serie A official match highlights", "Tony Awards musical performances",
+  "video game culture making of games", "travel destinations city walks",
+  "Ligue 1 official match highlights", "Victoria Secret fashion show runway",
+  "book adaptations author studio short features", "Emmy BET Awards best performances",
+  "FIFA World Cup highlights", "robotics 3D printing manufacturing demonstrations",
+  "celebrity movie cast games funny moments", "space discoveries visual short film",
+  "sports spectacular skills highlights", "street food cooking around the world",
+  "Ballon dOr ceremony best moments", "Formula 1 monthly race recap",
+  "Kenya local news brief headlines", "new official movie trailers upcoming releases",
+  "animation short films", "architecture extraordinary homes tour",
+  "live dance ballet hip hop African performance", "consumer gadgets teardown repair review"
 ];
 
 export const discoveryInterests = [
   "extraordinary wildlife short documentary", "incredible inventions demonstration",
   "beautiful cities travel short film", "movie practical effects behind the scenes",
   "street food cooking around the world", "live instrumental music performance",
-  "space discoveries short documentary", "architecture extraordinary homes tour"
+  "space discoveries short documentary", "architecture extraordinary homes tour",
+  "chess spectacular games explained", "art restoration painting process",
+  "fashion runway craftsmanship", "creative skill challenges",
+  "sports extraordinary skills", "Spanish street culture short film",
+  "nutrition science animated explainer", "movie trailers official",
+  "comedy sketch Saturday Night Live", "video game design behind the scenes"
 ];
 
-export const tvLanes = ["football", "motorsport", "technology", "news", "travel", "gaming", "film", "music", "nature", "food", "science", "other"] as const;
+export const tvLanes = ["football", "motorsport", "sports", "technology", "news", "travel", "gaming", "film", "trailers", "comedy", "celebrity", "awards", "fashion", "chess", "health", "arts", "books", "language", "challenges", "music", "nature", "food", "science", "other"] as const;
 export type TvLane = (typeof tvLanes)[number];
-export const laneLabels: Record<TvLane, string> = { football: "Match day", motorsport: "Fast lane", technology: "Tomorrow, today", news: "The short version", travel: "Somewhere else", gaming: "Press play", film: "Movie magic", music: "Good sounds", nature: "Wild world", food: "Good taste", science: "Little wonders", other: "A wild card" };
+export const laneLabels: Record<TvLane, string> = { football: "Match day", motorsport: "Fast lane", sports: "The highlight reel", technology: "Tomorrow, today", news: "The short version", travel: "Somewhere else", gaming: "Press play", film: "Movie magic", trailers: "Coming soon", comedy: "A good laugh", celebrity: "On the couch", awards: "And the winner is", fashion: "The runway", chess: "Your next move", health: "Feeling good", arts: "Made by hand", books: "One more page", language: "Hola, mundo", challenges: "Challenge accepted", music: "Good sounds", nature: "Wild world", food: "Good taste", science: "Little wonders", other: "A wild card" };
 
 export type TvCandidate = {
   videoId: string;
@@ -58,11 +82,23 @@ export type TvCandidate = {
 };
 
 const lanePatterns: [TvLane, RegExp][] = [
+  ["trailers", /\b(trailer|trailers|teaser)\b/i],
+  ["chess", /\b(chess|checkmate|gambit|magnus carlsen|hikaru)\b/i],
+  ["fashion", /\b(fashion|runway|met gala|red carpet|victoria.?s? secret|couture)\b/i],
+  ["awards", /\b(awards?|oscars?|emmys?|ballon d.?or|golden globes?|tony awards|bet awards)\b/i],
+  ["comedy", /\b(comedy|humou?r|snl|saturday night live|sketch|monologue)\b/i],
+  ["celebrity", /\b(celebrity|celebrities|late night|tonight show|jimmy fallon|jimmy kimmel|seth meyers|stephen colbert|graham norton|movie cast)\b/i],
+  ["health", /\b(health|nutrition|metabolism|exercise|fitness)\b/i],
+  ["arts", /\b(painting|art restoration|sculpture|craftsmanship|artist|art studio)\b/i],
+  ["books", /\b(books?|author|novel|literature)\b/i],
+  ["language", /\b(spanish|español|language learning)\b/i],
+  ["challenges", /\b(challenge|challenges|obstacle course|trick shots)\b/i],
   ["motorsport", /\b(formula\s*(?:one|1)|f1|grand prix|motogp|nascar|race recap)\b/i],
-  ["football", /\b(football|soccer|premier league|champions league|la liga|bundesliga|serie a|world cup|fifa|uefa|arsenal|chelsea|liverpool|barcelona|real madrid|manchester)\b/i],
+  ["football", /\b(football|soccer|epl|ucl|premier league|champions league|la\s?liga|bundesliga|serie\s?a|ligue\s?1|world cup|fifa|uefa|arsenal|chelsea|liverpool|barcelona|real madrid|manchester)\b/i],
+  ["sports", /\b(sports?|wwe|wrestling|nba|basketball|tennis|athletics|olympics|rugby|cricket)\b/i],
   ["technology", /\b(technology|tech|invention|robot|robotics|artificial intelligence|\bAI\b|gadget|smartphone|innovation|computer)\b/i],
   ["news", /\b(news|headlines|citizen tv|ntv kenya|ktn news|breaking news)\b/i],
-  ["gaming", /\b(gaming|video game|gameplay|playstation|xbox|nintendo|uncharted|hitman|minecraft)\b/i],
+  ["gaming", /\b(gameranx|gaming|video game|gameplay|playstation|xbox|nintendo|uncharted|hitman|minecraft)\b/i],
   ["film", /\b(movie|film|cinema|vfx|practical effects|behind.the.scenes|animation|cartoon)\b/i],
   ["music", /\b(music|concert|saxophone|piano|jazz|orchestra|instrumental|performance|song)\b/i],
   ["nature", /\b(wildlife|nature|ocean|animal|safari|bird|forest|underwater)\b/i],
@@ -85,6 +121,27 @@ export function isArchive(video: TvCandidate, now = Date.now()) {
   return Date.parse(video.publishedAt) < now - 365 * 86400000;
 }
 
+// Eight search calls cover eight topics, rather than four topics searched twice.
+// Cursor is user-scoped and advances only after a successful live discovery run.
+export function planTvSearches(profile: TvProfile, cursor: number) {
+  const personalCount = profile.discoveryPercent > 0 ? 6 : 8;
+  const personal = Array.from({ length: Math.min(personalCount, profile.interests.length) }, (_, i) => ({
+    topic: profile.interests[(cursor + i) % profile.interests.length], discovery: false
+  }));
+  const topics = [...personal];
+  if (profile.discoveryPercent > 0) for (let i = 0, added = 0; i < discoveryInterests.length && added < 2; i++) {
+    const topic = discoveryInterests[(cursor + i) % discoveryInterests.length];
+    if (topics.some((entry) => entry.topic.toLowerCase() === topic.toLowerCase())) continue;
+    topics.push({ topic, discovery: true }); added++;
+  }
+  return topics.map((entry, i) => {
+    const lane = categoryForVideo({ title: entry.topic, topic: "", channelTitle: "", description: "" } as TvCandidate);
+    const weekly = ["football", "sports", "news"].includes(lane);
+    const current = weekly || ["trailers", "technology", "awards", "fashion", "motorsport"].includes(lane);
+    return { ...entry, archive: !current && (i % 100) < Math.round(topics.length * profile.archivePercent / 100), recentDays: weekly ? 7 : 30 };
+  });
+}
+
 // A conservative metadata screen; it cannot certify the contents of a video.
 export function passesMetadataFilter(video: TvCandidate, profile: TvProfile, now = Date.now()) {
   const text = `${video.title} ${video.description} ${video.channelTitle}`.toLowerCase();
@@ -92,15 +149,24 @@ export function passesMetadataFilter(video: TvCandidate, profile: TvProfile, now
   if (profile.sharedTv && /\b(porn|nude|nudity|nsfw|gore|racial slur|hate speech|sex tape|fuck|shit)\b/i.test(text)) return false;
   if (profile.lightViewing) {
     const format = `${video.title} ${video.channelTitle}`;
+    const lane = categoryForVideo(video);
     if (/\b(podcast|lecture|lectures|philosophy|philosophical|existential|debate|dating advice|relationship advice|parenting advice|raising (?:kids|children)|red pill|manosphere|wild\s*['’]?[n&]['’]?\s*out|jordan (?:b\.? )?peterson|jbp|joe rogan|lex fridman|huberman lab|diary of a ceo|modern wisdom|fresh.?and.?fit|sex talk|body count)\b/i.test(format)) return false;
     if (/\b(dating|hook.?up|pick.?up|smash or pass|blind date|speed date|raunchy)\b/i.test(format)) return false;
     if (categoryForVideo(video) === "news" && video.durationSeconds > 8 * 60) return false;
     if (categoryForVideo(video) === "news" && Date.parse(video.publishedAt) < now - 7 * 86400000) return false;
-    if (/\b(interview|conversation|panel discussion|roundtable|talk show)\b/i.test(format) && categoryForVideo(video) !== "football") return false;
+    const interview = /\b(interview|conversation|panel discussion|roundtable|talk show)\b/i.test(format) || lane === "celebrity";
+    const favourite = (profile.favoriteCelebrities ?? []).some((name) => format.toLowerCase().includes(name.toLowerCase()));
+    // AI may assess affinity from this account's liked titles; metadata-only mode
+    // requires an explicit favourite rather than guessing a celebrity preference.
+    if (interview && lane !== "football" && !(video.durationSeconds <= 15 * 60 && (favourite || (["celebrity", "film", "comedy", "awards"].includes(lane) && profile.aiEnabled)))) return false;
+    if (["football", "sports"].includes(lane) && /\b(highlights?|recap)\b/i.test(video.title) && Date.parse(video.publishedAt) < now - 7 * 86400000) return false;
+    if (lane === "trailers" && Date.parse(video.publishedAt) < now - 30 * 86400000) return false;
+    if (lane === "health" && /\b(miracle cure|cures? cancer|detox cure|lose \d+ pounds in|stop your medication)\b/i.test(format)) return false;
   }
   if (profile.footballFocus === "european-world-cup" && categoryForVideo(video) === "football" && /\b(nfl|super bowl|american football|college football|mls|saudi pro league)\b/i.test(video.title)) return false;
   if (profile.monthlyMotorsport && categoryForVideo(video) === "motorsport" && Date.parse(video.publishedAt) < now - 31 * 86400000) return false;
-  return video.durationSeconds >= 120 && video.durationSeconds <= profile.maxVideoMinutes * 60;
+  const minimum = categoryForVideo(video) === "trailers" ? 60 : 120;
+  return video.durationSeconds >= minimum && video.durationSeconds <= profile.maxVideoMinutes * 60;
 }
 
 export type MixContext = { categoryCounts?: Map<TvLane, number>; channelCounts?: Map<string, number>; recentLanes?: TvLane[]; monthlyMotorsportSeen?: boolean };

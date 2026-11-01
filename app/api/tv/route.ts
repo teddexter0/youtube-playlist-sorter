@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
           await ref.update({ "playlistIds.tv": playlistId });
         }
         const profile = { ...defaultTvProfile, ...user.tv, playlistId,
-          interests: body.action === "start" && user.tv?.interests.length ? user.tv.interests : taste.interests,
+          interests: body.action === "start" && user.tv?.interests.length ? user.tv.interests : [...new Set([...(user.tv?.interests ?? []), ...taste.interests])].slice(0, 60),
           useSubscriptions: user.tv?.useSubscriptions ?? true, useYouTubeLikes: user.tv?.useYouTubeLikes ?? true };
         await ref.update({ tv: profile, updatedAt: new Date().toISOString() });
         setup = { ok: true, profile, subscriptionCount: taste.subscriptionCount, likedCount: taste.likedCount };
@@ -110,7 +110,8 @@ export async function POST(request: NextRequest) {
         const snap = await tx.get(ref);
         if ((snap.data()?.tvLockUntil ?? 0) > Date.now()) throw new Error("Wait for the current TV run before editing preferences.");
         if (profile.liveEnabled && snap.data()?.tvPreviewHash !== tvProfileHash(profile)) throw new Error("Save with daily TV off, preview these preferences, then enable daily TV.");
-        tx.update(ref, { tv: profile, updatedAt: new Date().toISOString() });
+        const topicsChanged = JSON.stringify(snap.data()?.tv?.interests ?? []) !== JSON.stringify(profile.interests);
+        tx.update(ref, { tv: profile, ...(topicsChanged ? { tvSearchCursor: 0 } : {}), updatedAt: new Date().toISOString() });
       });
       return NextResponse.json({ ok: true, profile });
     }

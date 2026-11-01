@@ -18,7 +18,7 @@ test('profiles start empty and private to each user; reject unbounded settings',
   assert.deepEqual(defaultTvProfile.interests, []);
   assert.equal(defaultTvProfile.liveEnabled, false);
   assert.equal(defaultTvProfile.aiEnabled, false);
-  assert.equal(tvProfileSchema.safeParse({ interests: Array(13).fill('science') }).success, false);
+  assert.equal(tvProfileSchema.safeParse({ interests: Array(61).fill('science') }).success, false);
 });
 test('runtime config removes PowerShell BOM/newlines without exposing values', () => {
   const { envValue } = require('../lib/runtime-config.ts');
@@ -49,7 +49,7 @@ test('metadata screening honors exclusions, age-independent respectful topics an
   assert.equal(passesMetadataFilter(video('a', { durationSeconds: 30 }), defaultTvProfile), false);
 });
 
-let state, inserted, failInsert, nativeLikedIds = [];
+let state, inserted, failInsert, referenceError, nativeLikedIds = [];
 const ref = { update: async patch => Object.assign(state, patch), collection: () => ({ add: async () => {} }) };
 const db = { collection: () => ({ doc: () => ref }), runTransaction: async fn => fn({
   get: async () => ({ data: () => state }), update: (_ref, patch) => Object.assign(state, patch)
@@ -68,7 +68,10 @@ Module._load = function(request, parent, ...args) {
         } }
       }),
       validatePlaylist: async () => ({ snippet: { channelId: 'mine' } }),
-      listPlaylistItems: async () => inserted.map(videoId => ({ contentDetails: { videoId } })),
+      listPlaylistItems: async (_youtube, playlistId) => {
+        if (playlistId === 'REFERENCE' && referenceError) throw Object.assign(new Error('Reference unavailable'), { code: referenceError });
+        return inserted.map(videoId => ({ contentDetails: { videoId } }));
+      },
       getVideos: async (_youtube, ids) => ids.map(id => ({ id, snippet: { title: 'Science documentary', description: '', channelTitle: id, channelId: id, publishedAt: '2026-10-01', liveBroadcastContent: 'none' }, contentDetails: { duration: 'PT10M' } })),
       getSubscribedChannelIds: async () => new Set(),
       getYouTubeAccountTaste: async () => ({ likedVideoIds: nativeLikedIds, likedTitles: [], interests: ['Science'] })
@@ -82,7 +85,7 @@ Module._load = originalLoad;
 const reset = () => {
   state = { userId: 'user-a', playlistIds: {}, tv: { ...defaultTvProfile, interests: ['science'], playlistId: 'TV', liveEnabled: true }, tvHistory: [] };
   state.tvPreviewHash = tvProfileHash(state.tv);
-  inserted = []; failInsert = false; nativeLikedIds = [];
+  inserted = []; failInsert = false; referenceError = 0; nativeLikedIds = [];
 };
 test('dry run writes no YouTube items; live retries do not duplicate delivered videos', async () => {
   reset();
@@ -93,6 +96,23 @@ test('dry run writes no YouTube items; live retries do not duplicate delivered v
   await runTvForUser(state, 'live');
   assert.equal(inserted.length, 2);
   assert.equal(state.tvLockUntil, 0);
+});
+
+test('missing references warn without stopping a mix; permission failures remain visible', async () => {
+  reset(); state.tv.seedPlaylistIds = ['REFERENCE']; referenceError = 404;
+  const run = await runTvForUser(state, 'dry-run');
+  assert.equal(run.videos.length, 2);
+  assert.ok(run.warnings.some(w => w.includes('reference playlist')));
+  referenceError = 403;
+  await assert.rejects(runTvForUser(state, 'dry-run'), /Reference unavailable/);
+});
+
+test('live discovery advances only this user cursor while previews leave it unchanged', async () => {
+  reset(); state.tvSearchCursor = 7;
+  await runTvForUser(state, 'dry-run');
+  assert.equal(state.tvSearchCursor, 7);
+  await runTvForUser(state, 'live');
+  assert.equal(state.tvSearchCursor, 8);
 });
 
 test('account topics come from YouTube metadata and fall back to subscribed channels', () => {
@@ -197,3 +217,4 @@ test('explicit manual fill adds videos with daily TV off; cron stays gated', asy
   assert.equal(state.tv.liveEnabled, false);
   assert.equal(state.tvPreviewHash, tvProfileHash(state.tv));
 });
+
