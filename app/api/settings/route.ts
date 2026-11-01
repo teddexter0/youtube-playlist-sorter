@@ -17,7 +17,7 @@ export async function GET() {
   const userId = getCurrentUserId();
   if (!userId) return NextResponse.json({ error: "Not connected" }, { status: 401 });
   const user = await getUserSettings(userId);
-  return NextResponse.json(user ? publicUserSettings(user) : null);
+  return NextResponse.json(user ? publicUserSettings(user) : null, { headers: { "cache-control": "private, no-store" } });
 }
 
 export async function POST(request: NextRequest) {

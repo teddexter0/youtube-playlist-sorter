@@ -35,7 +35,7 @@ export function googleAuthUrl(state: string) {
   const client = oauthClient();
   return client.generateAuthUrl({
     access_type: "offline",
-    prompt: "consent",
+    prompt: "select_account consent",
     state,
     scope: [
       "openid",

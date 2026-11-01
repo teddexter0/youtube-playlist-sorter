@@ -23,6 +23,7 @@ const actionSchema = z.discriminatedUnion("action", [
 ]);
 
 export async function POST(request: NextRequest) {
+  if (request.headers.get("origin") && request.headers.get("origin") !== request.nextUrl.origin) return NextResponse.json({ error: "Invalid request origin" }, { status: 403 });
   const userId = getCurrentUserId();
   if (!userId) return NextResponse.json({ error: "Connect Google first." }, { status: 401 });
   let action = "parse";

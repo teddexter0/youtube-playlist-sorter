@@ -56,7 +56,8 @@ Module._load = function(request, parent, ...args) {
   }
   return originalLoad.call(this, request, parent, ...args);
 };
-const { POST } = require('../app/api/tv/route.ts');
+const { POST: handler } = require('../app/api/tv/route.ts');
+const POST = request => handler({ headers: { get: () => null }, nextUrl: { origin: 'https://test.local' }, ...request });
 Module._load = originalLoad;
 const reset = () => {
   state = { userId: 'user-a', playlistIds: {}, tv: { ...defaultTvProfile, avoid: ['spoilers'], sessionMinutes: 60 } };

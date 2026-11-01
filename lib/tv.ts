@@ -4,7 +4,7 @@ import { adminDb } from "./firebase";
 import { getSubscribedChannelIds, getYouTubeAccountTaste, getVideos, listPlaylistItems, validatePlaylist, youtubeForUser } from "./google";
 import { parseIsoDurationSeconds } from "./playlist";
 import { rankTvCandidates } from "./tv-ai";
-import { selectTvMix, passesMetadataFilter, tvProfileSchema, type TvCandidate, type TvProfile } from "./tv-profile";
+import { selectTvMix, passesMetadataFilter, tvProfileSchema, categoryForVideo, discoveryInterests, type TvCandidate, type TvProfile, type TvLane } from "./tv-profile";
 
 export function tvProfileHash(profile: TvProfile) {
   const { liveEnabled: _live, ...preferences } = profile;
@@ -49,19 +49,23 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     for (const id of accountTaste?.likedVideoIds ?? []) excluded.add(id);
     const blockedChannels = new Set(Object.values(user.tvFeedback ?? {}).filter((f) => f.action === "block-channel").map((f) => f.channelId));
     const warnings: string[] = [];
-    const origins = new Map<string, string>();
-    const add = (id: string | null | undefined, topic: string) => { if (id && !origins.has(id)) origins.set(id, topic); };
+    const origins = new Map<string, { topic: string; discovery: boolean }>();
+    const add = (id: string | null | undefined, topic: string, discovery = false) => { if (id && !origins.has(id)) origins.set(id, { topic, discovery }); };
     // Rotate through topics daily rather than spending search quota on every interest.
     const day = Math.floor(Date.now() / 86400000);
-    const topics = Array.from({ length: Math.min(4, profile.interests.length) }, (_, i) => profile.interests[(day * 4 + i) % profile.interests.length]);
-    await Promise.all(topics.flatMap((topic) => [false, true].map(async (archive) => {
+    const personalCount = profile.discoveryPercent > 0 ? 2 : 4;
+    const topics = Array.from({ length: Math.min(personalCount, profile.interests.length) }, (_, i) => ({ topic: profile.interests[(day * personalCount + i) % profile.interests.length], discovery: false }));
+    if (profile.discoveryPercent > 0) {
+      for (let i = 0; i < 2; i++) topics.push({ topic: discoveryInterests[(day * 2 + i) % discoveryInterests.length], discovery: true });
+    }
+    await Promise.all(topics.flatMap(({ topic, discovery }) => [false, true].map(async (archive) => {
         const result = await youtube.search.list({
           part: ["snippet"], type: ["video"], q: topic, maxResults: 10,
           safeSearch: profile.sharedTv ? "strict" : "moderate", order: "relevance",
           ...(archive ? { publishedBefore: new Date(Date.now() - 365 * 86400000).toISOString() }
             : { publishedAfter: new Date(Date.now() - 30 * 86400000).toISOString() })
         });
-        for (const item of result.data.items ?? []) add(item.id?.videoId, topic);
+        for (const item of result.data.items ?? []) add(item.id?.videoId, topic, discovery);
     })));
     for (const id of profile.seedPlaylistIds) {
       const items = await listPlaylistItems(youtube, id, 50);
@@ -86,10 +90,12 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
       const candidate: TvCandidate = {
         videoId: video.id, title: video.snippet.title ?? "", description: video.snippet.description ?? "",
         channelId: video.snippet.channelId ?? "", channelTitle: video.snippet.channelTitle ?? "",
-        topic: origins.get(video.id) ?? "Discovery", publishedAt: video.snippet.publishedAt ?? "",
+        topic: origins.get(video.id)?.topic ?? "Discovery", publishedAt: video.snippet.publishedAt ?? "",
+        discovery: origins.get(video.id)?.discovery ?? false,
         durationSeconds: parseIsoDurationSeconds(video.contentDetails?.duration), score: 0.7,
-        reason: `Found via ${origins.get(video.id)}; metadata match, not a content review.`
+        reason: `Found via ${origins.get(video.id)?.topic}; metadata match, not a content review.`
       };
+      candidate.category = categoryForVideo(candidate);
       return blockedChannels.has(candidate.channelId) || !passesMetadataFilter(candidate, profile) ? [] : [candidate];
     });
     if (profile.aiEnabled && candidates.length) {
@@ -99,8 +105,22 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     } else if (!profile.aiEnabled) {
       warnings.push("AI is off: selection uses search relevance, metadata filters and diversity rules. Shared-TV suitability is not certified.");
     }
-    const videos = selectTvMix(candidates, profile, excluded).slice(0, Math.max(0, 40 - existingItems.length));
-    if (!videos.length) warnings.push("No new eligible videos fit your saved interests and duration limits. Broaden interests or increase the maximum video length; videos already queued, previously delivered or marked seen are excluded.");
+    const categoryCounts = new Map<TvLane, number>();
+    const channelCounts = new Map<string, number>();
+    const queuedVideos = await getVideos(youtube, [...existing].filter(Boolean));
+    for (const queued of queuedVideos) {
+      const lane = categoryForVideo({ videoId: queued.id ?? "", title: queued.snippet?.title ?? "", channelTitle: queued.snippet?.channelTitle ?? "", channelId: queued.snippet?.channelId ?? "", description: queued.snippet?.description ?? "", topic: "Existing queue", durationSeconds: 0, publishedAt: "", score: 0, reason: "" });
+      categoryCounts.set(lane, (categoryCounts.get(lane) ?? 0) + 1);
+      const channelId = queued.snippet?.channelId ?? "";
+      channelCounts.set(channelId, (channelCounts.get(channelId) ?? 0) + 1);
+    }
+    const recent = (user.tvRecent ?? []).filter((v) => Date.parse(v.at) > Date.now() - 31 * 86400000);
+    const videos = selectTvMix(candidates, profile, excluded, Date.now(), { categoryCounts, channelCounts,
+      recentLanes: recent.filter((v) => Date.parse(v.at) > Date.now() - 3 * 86400000).map((v) => v.category),
+      monthlyMotorsportSeen: recent.some((v) => v.category === "motorsport")
+    }).slice(0, Math.max(0, 40 - existingItems.length));
+    if ([...categoryCounts.values()].some((count) => count > profile.maxPerTopic)) warnings.push("Your existing queue already has a topic above the new cap. No more of that topic will be added; manage older items in YouTube.");
+    if (!videos.length) warnings.push("No new picks fit this mix. Your topic caps, seen videos or duration limits may have filled the available slots. Try more interests or remove finished items in YouTube.");
     const results: TvRun["videos"] = [];
     for (const video of videos) {
       if (mode === "live") {
@@ -110,7 +130,8 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
         // Record each successful insertion so a partially failed run can resume safely.
         await adminDb().runTransaction(async (tx) => {
           const snap = await tx.get(ref);
-          tx.update(ref, { tvHistory: [...new Set([...(snap.data()?.tvHistory ?? []), video.videoId])].slice(-500) });
+          tx.update(ref, { tvHistory: [...new Set([...(snap.data()?.tvHistory ?? []), video.videoId])].slice(-500),
+            tvRecent: [...(snap.data()?.tvRecent ?? []), { videoId: video.videoId, category: categoryForVideo(video), channelId: video.channelId, at: new Date().toISOString() }].slice(-300) });
         });
       }
       results.push({ ...video, action: mode === "live" ? "Added to TV" : "Would add to TV" });

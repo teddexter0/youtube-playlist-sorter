@@ -47,6 +47,7 @@ export type UserSettings = {
   tv?: import("./tv-profile").TvProfile;
   tvPreviewHash?: string;
   tvHistory?: string[];
+  tvRecent?: { videoId: string; category: import("./tv-profile").TvLane; channelId: string; at: string }[];
   tvFeedback?: Record<string, { action: "like" | "skip" | "watched" | "block-channel"; channelId: string; at: string }>;
 };
 

@@ -1,54 +1,15 @@
 import Link from "next/link";
 import { getCurrentUserId } from "@/lib/session";
-import { getUserSettings } from "@/lib/store";
+import BroadcastStage from "./tv/BroadcastStage";
 
-export default async function HomePage() {
-  const userId = getCurrentUserId();
-  const settings = userId ? await getUserSettings(userId) : null;
-
-  return (
-    <>
-      <section className="hero">
-        <h1>Less scrolling. More watching.</h1>
-        <p>
-          Build a varied TV queue from your interests, or sort videos you save to Inbox.
-          Open your playlist in YouTube on your phone and cast it to the TV.
-        </p>
-        <div className="toolbar">
-          <Link href="/tv" className="button">Set up personal TV</Link>
-          {userId ? (
-            <Link href="/settings" className="button">
-              Open settings
-            </Link>
-          ) : (
-            <a href="/api/auth/google/start" className="button">
-              Connect Google account
-            </a>
-          )}
-          <Link href="/logs" className="button secondary">
-            View logs
-          </Link>
-        </div>
-      </section>
-
-      <section className="grid">
-        <div className="panel">
-          <h2>Status</h2>
-          <p>{userId ? `Connected as ${settings?.email ?? userId}` : "Google is not connected yet."}</p>
-          <p>
-            Live sorting: <strong>{settings?.liveSortingEnabled ? "enabled" : "off"}</strong>
-            <br />
-            Cleanup: <strong>{settings?.cleanupEnabled ? "enabled" : "off"}</strong>
-          </p>
-        </div>
-        <div className="panel">
-          <h2>Safety defaults</h2>
-          <p>
-            Dry-run is required before live sorting or cleanup. The app never creates playlists on its own,
-            avoids duplicate playlist inserts, and only removes playlist items during cleanup.
-          </p>
-        </div>
-      </section>
-    </>
-  );
+export default function HomePage() {
+  const connected = Boolean(getCurrentUserId());
+  return <>
+    <BroadcastStage connected={connected} />
+    <div className="station-ticker" aria-hidden="true"><div>{[0, 1].map((i) => <span key={i}>MATCH DAY ✦ MOVIE MAGIC ✦ LITTLE WONDERS ✦ SOMEWHERE NEW ✦ GOOD SOUNDS ✦ NO MORE SAME OLD ✦ </span>)}</div></div>
+    <section className="welcome-section" id="your-station"><p className="eyebrow">REMEMBER WHEN SOMETHING GOOD JUST CAME ON?</p><h2>That feeling.<br /><span className="cinema-type">Your kind of television.</span></h2>
+      <div className="welcome-grid"><article><span className="welcome-number">01</span><h3>Your taste.<br />A wider world.</h3><p>Start with your own likes and subscriptions. Leave a little room for something you&apos;ve never stumbled across.</p></article><article><span className="welcome-number">02</span><h3>A little of this.<br />A little of that.</h3><p>No one-topic takeover. Rotate channels, sprinkle in older gems, and keep the heavy talks for another time.</p></article><article><span className="welcome-number">03</span><h3>Skip the hunt.<br />Keep the good part.</h3><p>Build a private playlist now, or have a new mix waiting each evening. All the watching happens in YouTube.</p></article></div>
+      <Link className="button big-link" href="/tv">Let&apos;s make your station ↗</Link>
+    </section>
+  </>;
 }

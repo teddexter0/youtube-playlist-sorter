@@ -1,5 +1,16 @@
 # YouTube Playlist Sorter + Personal TV
 
+## Broadcast refresh — November 2026
+
+- Three UI colours (cream, ink, tangerine), large open-source rounded/block/script typography, shuffled stock scenery, an optional muted Pexels sunset clip, original vector scenes and perspective-projected Canvas 2D orbital motion. The CRT screen responds to pointer/scroll; the mascot follows the pointer. Pause and reduced-motion support are included. Essential controls remain easy to click. No paid stock-media API calls; external media/fonts can fail and have local CSS/vector fallbacks. Media credits: `/credits`.
+- Profiles now include comfort viewing, a 1–4 maximum per canonical topic, a discovery target, optional European/World Cup football preference and an optional monthly motorsport cameo. The topic and two-per-channel caps include videos already queued. Previously queued excess is reported, not silently deleted. Related search phrases share one canonical category, so different football queries cannot each use a separate cap.
+- Comfort mode screens podcast/lecture/philosophy/debate and raunchy dating/relationship-advice metadata. Short football analysis can remain. News is limited to eight minutes and seven days old; monthly motorsport requires a recent clip and is suppressed after an app-delivered motorsport pick in the preceding 31 days. These are metadata heuristics, not full-video certification.
+- Discovery uses two rotating account-interest searches plus two rotating broader visual-interest searches (or four account interests when discovery is zero), each with recent/archive candidates. Variety, discovery and archive percentages are soft targets constrained by availability, duration and the hard caps. Recent category history gently changes priorities over three days. All history and feedback remain under the signed-in account.
+- **Build the weekend mix** is an explicit per-user preset-and-build action. New accounts import their own likes/subscriptions; they do not inherit Ted's tastes or another user's data. Existing accounts keep their interests unless they select the preset or refresh their import.
+- Account switching requests Google's account picker. Sign-out, private/no-store settings responses, same-origin checks, and per-account disconnect/data deletion are included. Disconnect attempts token revocation and recursively deletes that user's app records; it does not delete YouTube playlists. Failed revocation is reported with instructions for Google Account connections.
+- `/privacy`, `/terms` and `/setup` provide the Google public-launch pages/checklist. The app supports separate Google users, but Google's External/In production and any verification requirements must be completed in Google Cloud. Presence of OAuth credentials or a successful deployment is not proof that unrestricted public sign-in is enabled. Second-account and real YouTube write tests still require those accounts' consent.
+- The supplied example playlist `PLWeUCzNh1s1g` could not be fetched through the available public retrieval tools. The preset is based on the written viewing brief, not a claim to have inspected its contents.
+
 ## Personal TV: the refined goal
 
 Open YouTube at the end of the day and have a varied playlist ready, without spending an hour collecting videos first. `/tv` adds discovery alongside the existing Inbox sorter. It produces a normal YouTube playlist you can open on phone, desktop or TV. Start playback in YouTube and cast using YouTube's controls; this app does not remotely start playback or casting. Your laptop can be off when the app is deployed with working scheduled execution.
@@ -77,3 +88,4 @@ npm run dev
 ```
 
 Open `http://localhost:3000`, connect Google, paste playlist URLs or IDs, validate them, then run a dry-run scan before enabling live sorting.
+

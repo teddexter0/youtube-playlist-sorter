@@ -1,0 +1,14 @@
+import Link from "next/link";
+
+export default function PrivacyPage() {
+  return <article className="panel policy"><p className="eyebrow">YOUR ACCOUNT. YOUR BUSINESS.</p><h1>A little privacy, please.</h1>
+    <p>Last updated 1 November 2026. Personal TV is part of YouTube Playlist Sorter, operated by Ted Dexter. Questions: <a href="https://github.com/teddexter0/youtube-playlist-sorter/issues">support via GitHub</a>.</p>
+    <h2>What we connect</h2><p>When you sign in with Google, we receive your account identifier and email, plus permission to read your YouTube likes, subscriptions and accessible playlists, and manage playlists you choose. We do not receive your Google password, YouTube watch history or Watch Later.</p>
+    <h2>Your own little station</h2><p>Your preferences, feedback, playlist IDs and delivery history belong to your signed-in account. Other users cannot retrieve them through the app. Refresh tokens are encrypted on the server. Authorized service operators can access the backend; this is not end-to-end encrypted storage.</p>
+    <h2>AI stays optional</h2><p>AI ranking is off by default. If you enable it, your selected interests, avoid terms, candidate video metadata and selected liked-video titles are sent to the configured model provider through Vercel AI Gateway to rank your queue. We do not use this data to train our own model, serve ads or sell data. Do not enable AI for a shared account unless you agree to that processing.</p>
+    <h2>Storage and outside services</h2><p>Firebase stores account settings and encrypted credentials; Vercel hosts the service. Google/YouTube provides video data. Stock scenery from Pexels/Unsplash and fonts from Google Fonts may load directly from those providers, exposing ordinary connection information such as your IP address. No advertising trackers are added by this app.</p>
+    <h2>Disconnect whenever</h2><p>Use Account &amp; privacy in Personal TV to disconnect and delete your app data, including preferences, feedback and tokens. This does not delete videos or playlists in YouTube. You can also revoke access from <a href="https://myaccount.google.com/connections" target="_blank" rel="noreferrer">Google Account connections</a>. Stored app data remains until you delete it; provider backups may retain copies under their retention policies.</p>
+    <p>Our use of information received from Google APIs follows the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noreferrer">Google API Services User Data Policy</a>, including its Limited Use requirements. YouTube use is also subject to <a href="https://www.youtube.com/t/terms">YouTube&apos;s Terms of Service</a> and <a href="https://policies.google.com/privacy">Google&apos;s Privacy Policy</a>.</p>
+    <Link className="button" href="/tv">Back to your station</Link>
+  </article>;
+}
