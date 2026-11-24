@@ -30,8 +30,10 @@ async function run() {
   if (!user.encryptedRefreshToken || user.storageMigrating || !activeStationKeys(user).includes("tv")) {
     console.log("Requested TV refresh: account unavailable for TV."); return;
   }
-  if (["append-lineup", "append-lineup-retry"].includes(process.argv[3])) {
-    const results = await runStations(user, "evening", now, { trigger: "kickoff", ...(process.argv[3] === "append-lineup" ? { lineupUpgrade: true } : { lineupRetry: true }) });
+  if (["append-lineup", "append-lineup-retry", "append-popculture"].includes(process.argv[3])) {
+    const mode = process.argv[3];
+    const options = mode === "append-lineup" ? { lineupUpgrade: true } : { lineupRetry: mode === "append-popculture" ? "popculture" : true };
+    const results = await runStations(user, "evening", now, { trigger: "kickoff", ...options });
     console.log("Requested append-only lineup:", JSON.stringify({ automatic: Boolean(user.stationAutopilot), runs: results.map(({ station, added, appended, code, warnings }) => ({
       station, added, appended, code, sourceWarnings: warnings?.filter(warning => /YouTube could not find channel|No suitable unseen trailers|No new picks/.test(warning))
     })) }));

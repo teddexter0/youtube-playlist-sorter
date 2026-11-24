@@ -93,9 +93,10 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     }
     const owner = envValue("PERSONAL_STATION_EMAIL");
     const region = owner && user.email === owner ? "KE" : undefined;
-    const searches = await Promise.all(topics.map(async ({ archive, recentDays, topic }, index) => youtube.search.list({
+    const searches = await Promise.all(topics.map(async ({ archive, recentDays, topic, videoDuration }, index) => youtube.search.list({
       part: ["snippet"], type: ["video"], q: topic, maxResults: profile.stationMode === "childhood" ? 10 : 20,
       regionCode: region,
+      videoDuration,
       safeSearch: profile.sharedTv ? "strict" : "moderate",
       order: profile.stationMode !== "childhood" && !archive && (cursor + index) % 2 === 1 ? "viewCount" : "relevance",
       ...(archive ? { publishedBefore: new Date(Date.now() - 365 * 86400000).toISOString() }

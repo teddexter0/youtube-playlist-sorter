@@ -168,7 +168,8 @@ export function tvRankingScore(video: TvCandidate, profile: TvProfile, now: numb
 
 // Eight search calls cover eight topics, rather than four topics searched twice.
 // Cursor is user-scoped and advances only after a successful live discovery run.
-export function planTvSearches(profile: TvProfile, cursor: number) {
+type TvSearch = { topic: string; discovery: boolean; archive: boolean; recentDays: number; videoDuration?: "long" | "medium" };
+export function planTvSearches(profile: TvProfile, cursor: number): TvSearch[] {
   if (profile.stationMode === "faith") return [];
   if (profile.stationMode === "childhood") {
     const formats = ["full story recap", "retrospective review", "best moments compilation", "cast reunion"];
@@ -181,12 +182,20 @@ export function planTvSearches(profile: TvProfile, cursor: number) {
   if (profile.stationMode !== "tv") {
     const saved = Array.from({ length: Math.min(4, profile.interests.length) }, (_, i) =>
       profile.interests[(cursor + i) % profile.interests.length]);
-    const formats = profile.stationMode === "popculture"
-      ? ["celebrity news this week recap", "movie cast interview entertainment tonight", "celebrity red carpet fashion highlights", "new movie premieres celebrity interview", "pop culture news weekly roundup", "awards show red carpet highlights"]
-      : ["first aid wound care how to Red Cross", "emergency preparedness kit checklist Red Cross", "food safety kitchen basics", "beginner swim water safety tips", "etiquette guide practical tips", "sleep hygiene tips Mayo Clinic", "meal prep tips for beginners", "how to make a budget basics"];
+    if (profile.stationMode === "popculture") {
+      const formats = ["Hollywood Reporter actors roundtable interview", "Entertainment Tonight extended movie cast interview", "Vanity Fair celebrity career retrospective interview", "movie cast reunion behind the scenes", "Access Hollywood celebrity interview extended", "celebrity red carpet special backstage interview"];
+      const recent = [...new Set([...saved, "celebrity news this week recap", "entertainment news red carpet highlights"])].slice(0, 4)
+        .map(topic => ({ topic, discovery: false, archive: false, recentDays: 14 }));
+      const features: TvSearch[] = Array.from({ length: 8 - recent.length }, (_, i) => ({
+        topic: formats[(cursor + i) % formats.length], discovery: false, archive: false, recentDays: 120,
+        videoDuration: i % 2 === 0 ? "long" : "medium"
+      }));
+      return [...recent, ...features];
+    }
+    const formats = ["first aid wound care how to Red Cross", "emergency preparedness kit checklist Red Cross", "food safety kitchen basics", "beginner swim water safety tips", "etiquette guide practical tips", "sleep hygiene tips Mayo Clinic", "meal prep tips for beginners", "how to make a budget basics"];
     const rotated = Array.from({ length: 4 }, (_, i) => formats[(cursor + i) % formats.length]);
     return [...new Set([...saved, ...rotated])].map(topic => ({
-      topic, discovery: false, archive: false, recentDays: profile.stationMode === "popculture" ? 30 : 365
+      topic, discovery: false, archive: false, recentDays: 365
     }));
   }
   const personalCount = profile.discoveryPercent > 0 ? 6 : 8;
@@ -247,7 +256,11 @@ export function passesMetadataFilter(video: TvCandidate, profile: TvProfile, now
   if (profile.excludeHorror && /\b(horror|terror|terrifying|nightmare|slasher|gore|gory|haunted|possession|possessed|exorcis[mt]|satanic|demonic|occult|conjuring|annabelle|insidious|evil dead|the nun|saw\s*(?:[ivx]+|\d+)|five nights at freddy|fnaf)\b/i.test(`${video.title} ${video.description.slice(0, 1200)}`)) return false;
   if ((profile.strictComfort || profile.stationMode !== "tv") && !fitsStation(video, profile)) return false;
   const age = now - Date.parse(video.publishedAt);
-  if (profile.stationMode === "popculture" && (!Number.isFinite(age) || age > (specialistClip ? 30 : 14) * 86400000)) return false;
+  if (profile.stationMode === "popculture") {
+    const feature = video.durationSeconds >= 6 * 60 && /\b(interviews?|roundtables?|cast reunion|career retrospective|behind the scenes|red carpet special|career timeline|looks back)\b/i.test(video.title) &&
+      !/\b(breaking news|gossip|weekly recap|this week)\b/i.test(video.title);
+    if (!Number.isFinite(age) || age > (feature ? 120 : specialistClip ? 30 : 14) * 86400000) return false;
+  }
   if (profile.stationMode === "faith" && (!Number.isFinite(age) || age > 30 * 86400000)) return false;
   if (profile.strictComfort && /\b(occult(?:ic|ism)?|demons?|demonic|satan(?:ic)?|witchcraft|sorcery|gothic|dark fantasy|horror|conjuring|annabelle|exorcist|erotic|sexual|sex scene|raunchy|striptease|culture war|political rant|anti.woke rant)\b/i.test(`${video.title} ${video.channelTitle} ${video.description.slice(0, 400)}`)) return false;
   if (profile.strictComfort && profile.stationMode === "tv") {
@@ -324,7 +337,8 @@ export function selectTvMix(candidates: TvCandidate[], profile: TvProfile, exclu
       (context.recentLanes?.filter((lane) => lane === categoryForVideo(a)).length ?? 0) - (context.recentLanes?.filter((lane) => lane === categoryForVideo(b)).length ?? 0) ||
       Number(isArchive(b, now) === wantArchive) - Number(isArchive(a, now) === wantArchive) ||
       tvRankingScore(b, profile, now) - tvRankingScore(a, profile, now) +
-        (compact ? (Math.abs(a.durationSeconds - pace) - Math.abs(b.durationSeconds - pace)) / 1000 : 0));
+        (compact ? (Math.abs(a.durationSeconds - pace) - Math.abs(b.durationSeconds - pace)) / 1000 : 0) +
+        (profile.stationMode === "popculture" ? (Math.min(1200, b.durationSeconds) - Math.min(1200, a.durationSeconds)) / 2400 : 0));
     const next = eligible[0];
     if (!next) break;
     const lane = categoryForVideo(next);

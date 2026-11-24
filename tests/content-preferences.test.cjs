@@ -40,6 +40,17 @@ test('specialist publishers can contribute fresh short uploads that fit the stat
   assert.equal(passesMetadataFilter({ ...skills, channelId: 'unverified' }, life, now), false);
 });
 
+test('pop culture searches for evergreen features and keeps stale news out', () => {
+  const profile = tvProfileSchema.parse({ stationMode: 'popculture', lightViewing: false, interests: ['celebrity news'] });
+  const searches = planTvSearches(profile, 3);
+  assert.equal(searches.length, 8);
+  assert.ok(searches.some(query => query.recentDays === 14));
+  assert.ok(searches.some(query => query.videoDuration === 'long' && query.recentDays === 120));
+  const feature = video('Cast interview about making a movie', { publishedAt: '2026-09-15', durationSeconds: 1500 });
+  assert.equal(passesMetadataFilter(feature, profile, now), true);
+  assert.equal(passesMetadataFilter({ ...feature, title: 'Breaking news: cast interview this week' }, profile, now), false);
+});
+
 test('no-Shorts rule rejects the entire ambiguous range including three-minute unlabelled videos', () => {
   for (const seconds of [0, 60, 120, 179, 180, NaN]) assert.equal(isLongFormVideo(video('Official trailer', { durationSeconds: seconds })), false);
   assert.equal(isLongFormVideo(video('Official trailer', { durationSeconds: 181 })), true);

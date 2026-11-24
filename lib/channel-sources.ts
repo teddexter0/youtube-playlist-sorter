@@ -7,6 +7,10 @@ const channelSources = [
   { id: "UC8fQzKHIhSoZeSq3bwQx4mw", handles: ["mayoclinic"] },
   { id: "UCjDsbbzHgTrGc4Ff26TJtsA", handles: ["enews"] },
   { id: "UCGbQJy-531_5vfphay-rChQ", handles: ["people"] },
+  { id: "UCdtXPiqI2cLorKaPrfpKc4g", handles: ["entertainmenttonight"] },
+  { id: "UCiKGMZZmZXK-RpbKJGXgH3Q", handles: ["accesshollywood"] },
+  { id: "UCZ8Sxmkweh65HetaZfR8YuA", handles: ["hollywoodreporter"] },
+  { id: "UCIsbLox_y9dCIMLd8tdC6qg", handles: ["vanityfair"] },
   { id: "UC_5niPa-d35gg88HaS7RrIw", handles: ["waltdisneystudios", "disneymovietrailers", "disney"] },
   { id: "UCcvM7fNSMn9Qm3BZnKTK8oQ", handles: ["wrestlinggifs", "wrestlingifs"] },
   { id: "UCqBJ47FjJcl61fmSbcadAVg", handles: ["ntvkenya", "ntvkenyaonline"] },
@@ -15,7 +19,7 @@ const channelSources = [
   { id: "UCia2_wzvSZrQBzbopXT1Fcg", handles: ["dreamworks", "dreamworksanimationstudio"] }
 ];
 
-export const popCulturePublishers = ["ENews", "People"] as const;
+export const popCulturePublishers = ["ENews", "People", "EntertainmentTonight", "AccessHollywood", "HollywoodReporter", "VanityFair"] as const;
 export const lifeSkillsPublishers = ["RedCross", "MayoClinic"] as const;
 
 export function channelSourceKey(handle: string) {

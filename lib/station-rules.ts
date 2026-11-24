@@ -4,7 +4,7 @@ import { channelSourceKey, lifeSkillsPublishers, popCulturePublishers } from "./
 export const stationNames = { tv: "TV", childhood: "New Childhood Recaps", faith: "NEW NJ", popculture: "NEW POP CULTURE", lifeskills: "New life skills", custom1: "My channel 2", custom2: "My channel 3", custom3: "My channel 4" } as const;
 const faithTopics = /\b(sermons?|bible|biblical|jesus|christian|gospel|scripture|prayer|church|worship|theology|devotionals?|testimon(?:y|ies))\b/i;
 const lifeSkillsTopics = /\b(life skills|first aid|cpr|swimming|water safety|survival|nutrition|cookery|cooking|meal prep|etiquette|insurance|grooming|hygiene|skin care|skincare|therapy|sleep|hormones?|bone health|bone growth|practical philosophy|life advice|emergency kit|preparedness|choking|aed|wound care|severe bleeding|food safety|budgeting)\b/i;
-const popCultureTopics = /\b(celebrity|celebrities|pop culture|entertainment news|red carpet|met gala|fashion|awards|oscars?|emmys?|grammys?|golden globes?|movie cast)\b/i;
+const popCultureTopics = /\b(celebrity|celebrities|pop culture|entertainment news|red carpet|met gala|fashion|awards|oscars?|emmys?|grammys?|golden globes?|movie cast|cast interview|cast reunion|actors? roundtables?)\b/i;
 export type StationKey = keyof typeof stationNames;
 const stationPublishers = {
   popculture: new Set<string>(popCulturePublishers.map(channelSourceKey)),
