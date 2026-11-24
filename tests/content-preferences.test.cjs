@@ -20,13 +20,24 @@ test('nostalgia requires a known show and an appropriate format, not a network l
 });
 
 test('weekly nostalgia discovery rotates actual titles and searches new uploads instead of forcing an archive cutoff', () => {
-  const franchises = ['Show One', 'Show Two', 'Show Three', 'Show Four', 'Show Five'];
+  const franchises = Array.from({ length: 10 }, (_, index) => `Show ${index + 1}`);
   const profile = tvProfileSchema.parse({ stationMode: 'childhood', franchises });
-  const initial = planTvSearches(profile, 0), next = planTvSearches(profile, 4);
-  assert.equal(initial.length, 4);
+  const initial = planTvSearches(profile, 0), next = planTvSearches(profile, 8);
+  assert.equal(initial.length, 8);
   assert.ok(initial.every(q => q.archive === false && q.recentDays === 365));
-  assert.ok(next.some(q => q.topic.startsWith('Show Five')));
+  assert.ok(next.some(q => q.topic.startsWith('Show 9 ')));
   assert.deepEqual(planTvSearches(tvProfileSchema.parse({ stationMode: 'childhood' }), 0), []);
+});
+
+test('specialist publishers can contribute fresh short uploads that fit the station', () => {
+  const pop = tvProfileSchema.parse({ stationMode: 'popculture' });
+  const life = tvProfileSchema.parse({ stationMode: 'lifeskills' });
+  const preview = video('Cast moments from the set', { channelId: 'UCjDsbbzHgTrGc4Ff26TJtsA', durationSeconds: 130 });
+  const skills = video('Emergency kit basics', { channelId: 'UC0aMPje3ZACnQPKM_qzY0vw', durationSeconds: 140 });
+  assert.equal(passesMetadataFilter(preview, pop, now), true);
+  assert.equal(passesMetadataFilter(skills, life, now), true);
+  assert.equal(passesMetadataFilter({ ...skills, title: 'Our charity fundraiser' }, life, now), false);
+  assert.equal(passesMetadataFilter({ ...skills, channelId: 'unverified' }, life, now), false);
 });
 
 test('no-Shorts rule rejects the entire ambiguous range including three-minute unlabelled videos', () => {

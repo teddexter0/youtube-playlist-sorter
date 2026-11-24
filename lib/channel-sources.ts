@@ -3,6 +3,10 @@ import { usTvNetworks } from "./tv-network-sources";
 // Public channel IDs keep existing station settings working when handles change.
 const channelSources = [
   ...usTvNetworks.flatMap(source => "id" in source ? [{ id: source.id, handles: [source.handle.toLowerCase()] }] : []),
+  { id: "UC0aMPje3ZACnQPKM_qzY0vw", handles: ["americanredcross", "redcross"] },
+  { id: "UC8fQzKHIhSoZeSq3bwQx4mw", handles: ["mayoclinic"] },
+  { id: "UCjDsbbzHgTrGc4Ff26TJtsA", handles: ["enews"] },
+  { id: "UCGbQJy-531_5vfphay-rChQ", handles: ["people"] },
   { id: "UC_5niPa-d35gg88HaS7RrIw", handles: ["waltdisneystudios", "disneymovietrailers", "disney"] },
   { id: "UCcvM7fNSMn9Qm3BZnKTK8oQ", handles: ["wrestlinggifs", "wrestlingifs"] },
   { id: "UCqBJ47FjJcl61fmSbcadAVg", handles: ["ntvkenya", "ntvkenyaonline"] },
@@ -10,6 +14,9 @@ const channelSources = [
   { id: "UCjmJDM5pRKbUlVIzDYYWb6g", handles: ["warnerbrospictures", "warnerbros"] },
   { id: "UCia2_wzvSZrQBzbopXT1Fcg", handles: ["dreamworks", "dreamworksanimationstudio"] }
 ];
+
+export const popCulturePublishers = ["ENews", "People"] as const;
+export const lifeSkillsPublishers = ["RedCross", "MayoClinic"] as const;
 
 export function channelSourceKey(handle: string) {
   const input = handle.trim().replace(/^@/, "");

@@ -1,10 +1,18 @@
 import type { TvCandidate, TvProfile } from "./tv-profile";
 import { isNostalgiaVideo } from "./childhood";
+import { channelSourceKey, lifeSkillsPublishers, popCulturePublishers } from "./channel-sources";
 export const stationNames = { tv: "TV", childhood: "New Childhood Recaps", faith: "NEW NJ", popculture: "NEW POP CULTURE", lifeskills: "New life skills", custom1: "My channel 2", custom2: "My channel 3", custom3: "My channel 4" } as const;
 const faithTopics = /\b(sermons?|bible|biblical|jesus|christian|gospel|scripture|prayer|church|worship|theology|devotionals?|testimon(?:y|ies))\b/i;
-const lifeSkillsTopics = /\b(life skills|first aid|cpr|swimming|water safety|survival|nutrition|cookery|cooking|meal prep|etiquette|insurance|grooming|hygiene|skin care|skincare|therapy|sleep|hormones?|bone health|bone growth|practical philosophy|life advice)\b/i;
+const lifeSkillsTopics = /\b(life skills|first aid|cpr|swimming|water safety|survival|nutrition|cookery|cooking|meal prep|etiquette|insurance|grooming|hygiene|skin care|skincare|therapy|sleep|hormones?|bone health|bone growth|practical philosophy|life advice|emergency kit|preparedness|choking|aed|wound care|severe bleeding|food safety|budgeting)\b/i;
 const popCultureTopics = /\b(celebrity|celebrities|pop culture|entertainment news|red carpet|met gala|fashion|awards|oscars?|emmys?|grammys?|golden globes?|movie cast)\b/i;
 export type StationKey = keyof typeof stationNames;
+const stationPublishers = {
+  popculture: new Set<string>(popCulturePublishers.map(channelSourceKey)),
+  lifeskills: new Set<string>(lifeSkillsPublishers.map(channelSourceKey))
+};
+export function isStationPublisher(mode: TvProfile["stationMode"], channelId: string) {
+  return (mode === "popculture" || mode === "lifeskills") && stationPublishers[mode].has(channelId);
+}
 export function activeStationKeys(user: import("./config").UserSettings): StationKey[] {
   if (user.enabledStations) return [...new Set(user.enabledStations)];
   // Existing playlists stay visible. New accounts inherit no personal station bundle.
@@ -25,9 +33,9 @@ export function fitsStation(v: TvCandidate, p: TvProfile) {
   const target = routeForVideo(v);
   const metadata = `${v.title} ${v.channelTitle} ${v.description.slice(0, 300)}`;
   if (p.stationMode === "faith") return Boolean(v.subscribed) && faithTopics.test(metadata);
-  if (p.stationMode === "popculture") return popCultureTopics.test(metadata) && !["faith", "childhood"].includes(target);
+  if (p.stationMode === "popculture") return (isStationPublisher(p.stationMode, v.channelId) || popCultureTopics.test(metadata)) && !["faith", "childhood"].includes(target);
   if (p.stationMode === "lifeskills") return target === "lifeskills" ||
-    (target === "tv" && lifeSkillsTopics.test(metadata) && /\b(how to|guide|tutorial|explained|tips|technique|demonstration|practical|mistakes|training)\b/i.test(v.title));
+    (target === "tv" && lifeSkillsTopics.test(metadata) && (isStationPublisher(p.stationMode, v.channelId) || /\b(how to|guide|tutorial|explained|tips|technique|demonstration|practical|mistakes|training|basics|beginner|step.by.step)\b/i.test(v.title)));
   return target === p.stationMode || (target === "childhood" && (v.officialTrailer || v.officialNetwork));
 }
 export function dueStations(slot: "evening" | "morning", date = new Date()): StationKey[] {

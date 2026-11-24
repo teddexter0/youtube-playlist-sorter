@@ -77,7 +77,7 @@ async function ensurePlaylist(user: UserSettings, key: StationKey) {
   }
   return profile;
 }
-export async function runStations(user: UserSettings, slot: "evening" | "morning", now = new Date(), options: { trigger?: "scheduled" | "kickoff"; onlyTv?: boolean; lineupUpgrade?: boolean } = {}) {
+export async function runStations(user: UserSettings, slot: "evening" | "morning", now = new Date(), options: { trigger?: "scheduled" | "kickoff"; onlyTv?: boolean; lineupUpgrade?: boolean; lineupRetry?: boolean } = {}) {
   if (user.storageMigrating) return [];
   user = await upgradePersonalLineup(user);
   const ref = adminDb().collection("users").doc(user.userId);
@@ -109,11 +109,14 @@ export async function runStations(user: UserSettings, slot: "evening" | "morning
     const upgrade = ref.collection("stationRuns").doc(`tv-lineup-v1--${key}`);
     const eligibleForUpgrade = user.tvLineupAppendStations?.includes(key);
     const priorUpgrade = eligibleForUpgrade ? (await upgrade.get()).data() : undefined;
+    const priorAppendSeconds = Number(priorUpgrade?.appended?.seconds ?? 0);
+    const retry = options.lineupRetry && morningStations.has(key) && priorUpgrade?.complete && priorUpgrade.dateKey === dateKey && priorAppendSeconds < 100 * 60;
+    if (options.lineupRetry && !retry) continue;
     if (options.lineupUpgrade && (!eligibleForUpgrade || priorUpgrade?.complete)) continue;
-    if (priorUpgrade?.complete && priorUpgrade.dateKey === dateKey) continue;
-    const appendUpgrade = eligibleForUpgrade && !priorUpgrade?.complete;
+    if (!retry && priorUpgrade?.complete && priorUpgrade.dateKey === dateKey) continue;
+    const appendUpgrade = retry || (eligibleForUpgrade && !priorUpgrade?.complete);
     const suffix = job.daily && trigger === "kickoff" && !personalDaily ? `--kickoff--${options.onlyTv ? "requested" : process.env.VERCEL_DEPLOYMENT_ID ?? "current"}` : "";
-    const claim = appendUpgrade ? upgrade : suffix ? ref.collection("stationRuns").doc(normalClaim.id + suffix) : normalClaim;
+    const claim = retry ? ref.collection("stationRuns").doc(upgrade.id + "--retry") : appendUpgrade ? upgrade : suffix ? ref.collection("stationRuns").doc(normalClaim.id + suffix) : normalClaim;
     const lease = crypto.randomUUID();
     const claimed = await adminDb().runTransaction(async tx => {
       const prior = (await tx.get(claim)).data();
@@ -125,7 +128,7 @@ export async function runStations(user: UserSettings, slot: "evening" | "morning
     try {
       const profile = appendUpgrade ? tvProfileSchema.parse(key === "tv" ? user.tv : user.stationProfiles?.[key]) : await ensurePlaylist(user, key);
       if (appendUpgrade && !profile.playlistId) throw new Error("Connect the station's existing playlist before adding a lineup.");
-      const result = await runTvForUser({ ...user, tv: profile }, "live", { manual: true, stationKey: key, cycleId: claim.id, forceRefresh: personalDaily, appendCycleId: appendUpgrade ? claim.id : undefined });
+      const result = await runTvForUser({ ...user, tv: profile }, "live", { manual: true, stationKey: key, cycleId: claim.id, forceRefresh: personalDaily, appendCycleId: appendUpgrade ? claim.id : undefined, previousAppendSeconds: retry ? priorAppendSeconds : undefined });
       const held = result.warnings.some(warning => warning.startsWith("Keeping your TV queue"));
       const completed = { complete: true, station: key, trigger, held, added: result.appended?.count ?? result.videos.length, warnings: result.warnings, at: new Date().toISOString(), ...(result.appended ? { appended: result.appended } : {}) };
       if (appendUpgrade) {

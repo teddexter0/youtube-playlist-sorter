@@ -19,7 +19,7 @@ export function tvProfileHash(profile: TvProfile) {
 
 export type TvRun = { videos: (TvCandidate & { action: string })[]; candidateCount: number; warnings: string[]; mode: "dry-run" | "live"; appended?: { count: number; seconds: number; preserved: number; networks: string[]; previews: number } };
 
-export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live", options: { manual?: boolean; forceRefresh?: boolean; stationKey?: StationKey; cycleId?: string; appendLimit?: number; appendCycleId?: string } = {}): Promise<TvRun> {
+export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live", options: { manual?: boolean; forceRefresh?: boolean; stationKey?: StationKey; cycleId?: string; appendLimit?: number; appendCycleId?: string; previousAppendSeconds?: number } = {}): Promise<TvRun> {
   const profile = tvProfileSchema.parse(user.tv ?? {});
   if (profile.stationMode === "childhood") {
     if (!profile.franchises.length) throw new Error("Add your childhood show titles before building nostalgia recommendations; generic children's content is not used.");
@@ -87,7 +87,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
       const lastDiscovery = topics.map(topic => topic.discovery).lastIndexOf(true);
       topics[lastDiscovery] = { topic: accountTaste.subscriptionTopics[day % accountTaste.subscriptionTopics.length], discovery: true, archive: false, recentDays: 30 };
     }
-    if (profile.preferredHandles.length || profile.studioHandles.length || profile.publisherSources.length || profile.mandatoryDaily || profile.stationMode === "faith") {
+    if (profile.preferredHandles.length || profile.studioHandles.length || profile.publisherSources.length || profile.mandatoryDaily || ["faith", "popculture", "lifeskills"].includes(profile.stationMode)) {
       const direct = await stationSources(user, profile);
       direct.origins.forEach((origin, id) => origins.set(id, origin)); warnings.push(...direct.warnings);
     }
@@ -122,7 +122,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
         for (const channel of details.data.items ?? []) {
           const uploads = channel.contentDetails?.relatedPlaylists?.uploads;
           if (!uploads) continue;
-          const items = await readOptionalPlaylist(youtube, uploads, 50, warnings, "a subscribed channel's uploads");
+          const items = await readOptionalPlaylist(youtube, uploads, 50, warnings, "a subscribed channel’s uploads");
           for (const item of items.slice(0, 8)) add(item.contentDetails?.videoId, "Your subscriptions", false, true);
         }
       }
@@ -183,7 +183,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     }
     const recent = (user.tvRecent ?? []).filter((v) => Date.parse(v.at) > Date.now() - 31 * 86400000);
     const deliveredSeconds = appendBatch || refresh?.started ? queuedVideos.reduce((total, video) => total + parseIsoDurationSeconds(video.contentDetails?.duration), 0) : 0;
-    let videos = selectTvMix(candidates, profile, excluded, Date.now(), { categoryCounts, channelCounts, deliveredSeconds,
+    let videos = selectTvMix(candidates, profile, excluded, Date.now(), { categoryCounts, channelCounts, deliveredSeconds, previousAppendSeconds: options.previousAppendSeconds,
       maxItems: Math.max(0, Math.min((options.appendLimit ?? 40) - ((appendBatch || refresh?.started) ? priorBatchItems.length : 0), capacity - existingItems.length)),
       recentLanes: recent.filter((v) => Date.parse(v.at) > Date.now() - 3 * 86400000).map((v) => v.category),
       monthlyMotorsportSeen: recent.some((v) => v.category === "motorsport")

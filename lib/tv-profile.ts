@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { fitsStation } from "./station-rules";
+import { fitsStation, isStationPublisher } from "./station-rules";
 import { isLongFormVideo } from "./video-format";
 import { sports } from "./sports";
 import { previewTitle, tvClipTitle } from "./tv-network-sources";
@@ -125,7 +125,7 @@ const lanePatterns: [TvLane, RegExp][] = [
   ["health", /\b(health|nutrition|metabolism|exercise|fitness)\b/i],
   ["arts", /\b(painting|art restoration|sculpture|craftsmanship|artist|art studio)\b/i],
   ["books", /\b(books?|author|novel|literature)\b/i],
-  ["language", /\b(spanish|espa�ol|language learning)\b/i],
+  ["language", /\b(spanish|español|language learning)\b/i],
   ["challenges", /\b(challenge|challenges|obstacle course|trick shots)\b/i],
   ["motorsport", /\b(formula\s*(?:one|1)|f1|grand prix|motogp|nascar|race recap)\b/i],
   ["football", /\b(football|soccer|epl|ucl|premier league|champions league|la\s?liga|bundesliga|serie\s?a|ligue\s?1|world cup|fifa|uefa|arsenal|chelsea|liverpool|barcelona|real madrid|manchester)\b/i],
@@ -173,15 +173,22 @@ export function planTvSearches(profile: TvProfile, cursor: number) {
   if (profile.stationMode === "childhood") {
     const formats = ["full story recap", "retrospective review", "best moments compilation", "cast reunion"];
     const titles = profile.franchises;
-    return Array.from({ length: Math.min(4, titles.length) }, (_, i) => ({
+    return Array.from({ length: Math.min(8, titles.length) }, (_, i) => ({
       topic: `${titles[(cursor + i) % titles.length]} ${formats[Math.floor(cursor / Math.max(1, titles.length)) % formats.length]}`,
       discovery: false, archive: false, recentDays: 365
     }));
   }
-  if (profile.stationMode !== "tv") return Array.from({ length: Math.min(4, profile.interests.length) }, (_, i) => ({
-    topic: profile.interests[(cursor + i) % profile.interests.length],
-    discovery: false, archive: false, recentDays: profile.stationMode === "popculture" ? 14 : 90
-  }));
+  if (profile.stationMode !== "tv") {
+    const saved = Array.from({ length: Math.min(4, profile.interests.length) }, (_, i) =>
+      profile.interests[(cursor + i) % profile.interests.length]);
+    const formats = profile.stationMode === "popculture"
+      ? ["celebrity news this week recap", "movie cast interview entertainment tonight", "celebrity red carpet fashion highlights", "new movie premieres celebrity interview", "pop culture news weekly roundup", "awards show red carpet highlights"]
+      : ["first aid wound care how to Red Cross", "emergency preparedness kit checklist Red Cross", "food safety kitchen basics", "beginner swim water safety tips", "etiquette guide practical tips", "sleep hygiene tips Mayo Clinic", "meal prep tips for beginners", "how to make a budget basics"];
+    const rotated = Array.from({ length: 4 }, (_, i) => formats[(cursor + i) % formats.length]);
+    return [...new Set([...saved, ...rotated])].map(topic => ({
+      topic, discovery: false, archive: false, recentDays: profile.stationMode === "popculture" ? 30 : 365
+    }));
+  }
   const personalCount = profile.discoveryPercent > 0 ? 6 : 8;
   const personal = Array.from({ length: Math.min(personalCount, profile.interests.length) }, (_, i) => ({
     topic: profile.interests[(cursor + i) % profile.interests.length], discovery: false
@@ -232,14 +239,15 @@ export function planTvSearches(profile: TvProfile, cursor: number) {
 export function passesMetadataFilter(video: TvCandidate, profile: TvProfile, now = Date.now()) {
   const verifiedPreview = video.officialTrailer && previewTitle.test(video.title);
   const verifiedClip = video.officialNetwork && tvClipTitle.test(video.title);
+  const specialistClip = isStationPublisher(profile.stationMode, video.channelId);
   const markedShort = /(?:#shorts?\b|\byoutube shorts\b|\bvertical (?:trailer|teaser|promo)\b)/i.test(`${video.title} ${video.description}`);
-  if (markedShort || (!(verifiedPreview || verifiedClip) && !isLongFormVideo(video))) return false;
+  if (markedShort || (!(verifiedPreview || verifiedClip || specialistClip) && !isLongFormVideo(video))) return false;
   if ((profile.sharedTv || profile.strictComfort) && video.matureRating) return false;
   const text = `${video.title} ${video.description} ${video.channelTitle}`.toLowerCase();
   if (profile.excludeHorror && /\b(horror|terror|terrifying|nightmare|slasher|gore|gory|haunted|possession|possessed|exorcis[mt]|satanic|demonic|occult|conjuring|annabelle|insidious|evil dead|the nun|saw\s*(?:[ivx]+|\d+)|five nights at freddy|fnaf)\b/i.test(`${video.title} ${video.description.slice(0, 1200)}`)) return false;
   if ((profile.strictComfort || profile.stationMode !== "tv") && !fitsStation(video, profile)) return false;
   const age = now - Date.parse(video.publishedAt);
-  if (profile.stationMode === "popculture" && (!Number.isFinite(age) || age > 14 * 86400000)) return false;
+  if (profile.stationMode === "popculture" && (!Number.isFinite(age) || age > (specialistClip ? 30 : 14) * 86400000)) return false;
   if (profile.stationMode === "faith" && (!Number.isFinite(age) || age > 30 * 86400000)) return false;
   if (profile.strictComfort && /\b(occult(?:ic|ism)?|demons?|demonic|satan(?:ic)?|witchcraft|sorcery|gothic|dark fantasy|horror|conjuring|annabelle|exorcist|erotic|sexual|sex scene|raunchy|striptease|culture war|political rant|anti.woke rant)\b/i.test(`${video.title} ${video.channelTitle} ${video.description.slice(0, 400)}`)) return false;
   if (profile.strictComfort && profile.stationMode === "tv") {
@@ -256,7 +264,7 @@ export function passesMetadataFilter(video: TvCandidate, profile: TvProfile, now
   if (profile.lightViewing) {
     const format = `${video.title} ${video.channelTitle}`;
     const lane = categoryForVideo(video);
-    if (/\b(podcast|lecture|lectures|philosophy|philosophical|existential|debate|dating advice|relationship advice|parenting advice|raising (?:kids|children)|red pill|manosphere|wild\s*['']?[n&]['']?\s*out|jordan (?:b\.? )?peterson|jbp|joe rogan|lex fridman|huberman lab|diary of a ceo|modern wisdom|fresh.?and.?fit|sex talk|body count)\b/i.test(format)) return false;
+    if (/\b(podcast|lecture|lectures|philosophy|philosophical|existential|debate|dating advice|relationship advice|parenting advice|raising (?:kids|children)|red pill|manosphere|wild\s*['’]?[n&]['’]?\s*out|jordan (?:b\.? )?peterson|jbp|joe rogan|lex fridman|huberman lab|diary of a ceo|modern wisdom|fresh.?and.?fit|sex talk|body count)\b/i.test(format)) return false;
     if (/\b(dating|hook.?up|pick.?up|smash or pass|blind date|speed date|raunchy)\b/i.test(format)) return false;
     if (categoryForVideo(video) === "news" && video.durationSeconds > 8 * 60) return false;
     if (categoryForVideo(video) === "news" && Date.parse(video.publishedAt) < now - 7 * 86400000) return false;
@@ -264,7 +272,7 @@ export function passesMetadataFilter(video: TvCandidate, profile: TvProfile, now
     const favourite = [...(profile.favoriteCelebrities ?? []), ...(profile.franchises ?? [])].some((name) => `${format} ${video.description.slice(0, 240)}`.toLowerCase().includes(name.toLowerCase()));
     // Explicit affinity works without AI; marked discovery candidates can bring new guests.
     const discoveryGuest = profile.celebrityDiscoveryPercent > 0 && video.discovery;
-    if (interview && lane !== "football" && !(video.durationSeconds <= 15 * 60 && (favourite || (["celebrity", "film", "comedy", "awards"].includes(lane) && (profile.aiEnabled || discoveryGuest || verifiedClip))))) return false;
+    if (interview && lane !== "football" && !(video.durationSeconds <= 15 * 60 && (favourite || specialistClip || (["celebrity", "film", "comedy", "awards"].includes(lane) && (profile.aiEnabled || discoveryGuest || verifiedClip))))) return false;
     if (["football", "sports"].includes(lane) && /\b(highlights?|recap)\b/i.test(video.title) && Date.parse(video.publishedAt) < now - 7 * 86400000 && !(lane === "football" && profile.allowClassicFootball && /\b201\d\b|\b2020\b/.test(video.title) && video.score >= 0.8)) return false;
     if (lane === "trailers" && Date.parse(video.publishedAt) < now - 30 * 86400000) return false;
     if (profile.mandatoryDaily && lane === "trailers" && !video.officialTrailer) return false;
@@ -273,12 +281,12 @@ export function passesMetadataFilter(video: TvCandidate, profile: TvProfile, now
   if ((categoryForVideo(video) === "health" || profile.stationMode === "lifeskills") && /\b(miracle cure|cures? cancer|detox cure|lose \d+ pounds in|stop your medication)\b/i.test(video.title)) return false;
   if (profile.footballFocus === "european-world-cup" && categoryForVideo(video) === "football" && /\b(nfl|super bowl|american football|college football|mls|saudi pro league)\b/i.test(video.title) && !(profile.selectedSports?.includes("american-football") && /\b(nfl|super bowl|american football|college football)\b/i.test(video.title))) return false;
   if (profile.monthlyMotorsport && categoryForVideo(video) === "motorsport" && Date.parse(video.publishedAt) < now - 31 * 86400000) return false;
-  const minimum = verifiedPreview ? 45 : verifiedClip ? 90 : 120;
+  const minimum = verifiedPreview ? 45 : verifiedClip || specialistClip ? 90 : 120;
   const maximum = profile.strictComfort && profile.stationMode === "tv" ? Math.min(profile.maxVideoMinutes, 18) : profile.maxVideoMinutes;
   return Number.isFinite(video.durationSeconds) && video.durationSeconds >= minimum && video.durationSeconds <= maximum * 60;
 }
 
-export type MixContext = { categoryCounts?: Map<TvLane, number>; channelCounts?: Map<string, number>; recentLanes?: TvLane[]; monthlyMotorsportSeen?: boolean; classicFootballSeen?: boolean; maxItems?: number; deliveredSeconds?: number };
+export type MixContext = { categoryCounts?: Map<TvLane, number>; channelCounts?: Map<string, number>; recentLanes?: TvLane[]; monthlyMotorsportSeen?: boolean; classicFootballSeen?: boolean; maxItems?: number; deliveredSeconds?: number; previousAppendSeconds?: number };
 
 export function selectTvMix(candidates: TvCandidate[], profile: TvProfile, excluded: Set<string>, now = Date.now(), context: MixContext = {}) {
   const available = candidates.filter((v) => !excluded.has(v.videoId) && passesMetadataFilter(v, profile, now));
@@ -287,7 +295,7 @@ export function selectTvMix(candidates: TvCandidate[], profile: TvProfile, exclu
   const channels = new Map(context.channelCounts);
   const topics = new Map(context.categoryCounts);
   const compact = profile.strictComfort && profile.stationMode === "tv";
-  const targetSeconds = profile.sessionMinutes * 60;
+  const targetSeconds = profile.sessionMinutes * 60 - (context.previousAppendSeconds ?? 0);
   const targetCount = compact ? Math.ceil(profile.sessionMinutes / 7) : 0;
   const coveredNetworks = new Set<string>();
   const networkTarget = compact ? Math.min(4, Math.ceil(profile.sessionMinutes / 35)) : 0;

@@ -3,7 +3,7 @@ import type { TvProfile } from "./tv-profile";
 import type { youtube_v3 } from "googleapis";
 import { adminDb } from "./firebase";
 import { getSubscribedChannelIds, readOptionalPlaylist, youtubeForUser } from "./google";
-import { channelLookup, channelSourceKey } from "./channel-sources";
+import { channelLookup, channelSourceKey, lifeSkillsPublishers, popCulturePublishers } from "./channel-sources";
 import { isStudioHandle } from "./studio-sources";
 import { previewTitle, tvClipTitle, usTvNetworks } from "./tv-network-sources";
 
@@ -30,7 +30,8 @@ export async function stationSources(user: UserSettings, profile: TvProfile) {
   const warnings: string[] = [];
   const selectedStudios = new Set((profile.studioHandles ?? []).map(channelSourceKey));
   const networks = new Set(usTvNetworks.map(source => channelSourceKey(source.handle)));
-  const handles = new Map([...(profile.preferredHandles ?? []), ...(profile.studioHandles ?? [])].map(handle => [channelSourceKey(handle), handle]));
+  const specialist = profile.stationMode === "popculture" ? popCulturePublishers : profile.stationMode === "lifeskills" ? lifeSkillsPublishers : [];
+  const handles = new Map([...(profile.preferredHandles ?? []), ...(profile.studioHandles ?? []), ...specialist].map(handle => [channelSourceKey(handle), handle]));
   const collect = async ([key, handle]: [string, string]) => {
     const cache = adminDb().collection("publicChannelCache").doc(key);
     let cached = (await cache.get()).data();
@@ -98,7 +99,7 @@ export async function stationSources(user: UserSettings, profile: TvProfile) {
         if (!/christian|bible|church|gospel|sermon|ministr|worship|jesus/i.test(meta)) continue;
         const uploadsId = channel.contentDetails?.relatedPlaylists?.uploads;
         if (!uploadsId) continue;
-        for (const item of await readOptionalPlaylist(yt, uploadsId, 15, warnings, "a subscribed faith channel's uploads")) {
+        for (const item of await readOptionalPlaylist(yt, uploadsId, 15, warnings, "a subscribed faith channel’s uploads")) {
           const id = item.contentDetails?.videoId;
           if (id) origins.set(id, { topic: "Your subscribed faith channels", discovery: false, subscribed: true });
         }
