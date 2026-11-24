@@ -33,7 +33,7 @@ export default async function LogsPage() {
         <tbody>
           {logs.map((log) => (
             <tr key={log.id}>
-              <td>{new Date(log.createdAt).toLocaleString()}</td>
+              <td>{new Date(log.createdAt).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", dateStyle: "medium", timeStyle: "short" })} EAT</td>
               <td className={`status ${log.level === "error" ? "error" : log.level === "warn" ? "kept" : "processed"}`}>
                 {log.level}
               </td>

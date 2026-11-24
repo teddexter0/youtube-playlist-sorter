@@ -3,6 +3,7 @@ import { decryptSecret } from "@/lib/crypto";
 import type { UserSettings } from "@/lib/config";
 import { envValue, missingGoogleConfig } from "@/lib/runtime-config";
 import { deriveTasteTopics } from "@/lib/taste-topics";
+export const youtubeScope = "https://www.googleapis.com/auth/youtube";
 
 export async function getYouTubeAccountTaste(youtube: youtube_v3.Youtube) {
   const [likes, subscriptions] = await Promise.all([
@@ -43,7 +44,7 @@ export function googleAuthUrl(state: string) {
       "openid",
       "email",
       "profile",
-      "https://www.googleapis.com/auth/youtube"
+      youtubeScope
     ]
   });
 }
@@ -77,14 +78,14 @@ export async function listPlaylistItems(
   return items;
 }
 
-export async function getVideos(youtube: youtube_v3.Youtube, videoIds: string[]) {
+export async function getVideos(youtube: youtube_v3.Youtube, videoIds: string[], includeStatistics = false) {
   const chunks: string[][] = [];
   for (let i = 0; i < videoIds.length; i += 50) chunks.push(videoIds.slice(i, i + 50));
   const videos: youtube_v3.Schema$Video[] = [];
 
   for (const chunk of chunks) {
     const res = await youtube.videos.list({
-      part: ["snippet", "contentDetails"],
+      part: ["snippet", "contentDetails", ...(includeStatistics ? ["statistics"] : [])],
       id: chunk
     });
     videos.push(...(res.data.items ?? []));
@@ -139,6 +140,40 @@ export async function validatePlaylist(youtube: youtube_v3.Youtube, playlistId: 
     maxResults: 1
   });
   return res.data.items?.[0] ?? null;
+}
+
+export function youtubePlaylistUnavailable(error: unknown) {
+  const failure = error as { response?: { data?: { error?: { errors?: { reason?: string }[] } } }; code?: number } | null;
+  const reason = failure?.response?.data?.error?.errors?.[0]?.reason;
+  return ["playlistNotFound", "playlistItemsNotAccessible", "playlistOperationUnsupported", "watchLaterNotAccessible", "watchHistoryNotAccessible"].includes(reason ?? "");
+}
+
+export async function readOptionalPlaylist(youtube: youtube_v3.Youtube, id: string, limit: number, warnings: string[], label: string) {
+  try {
+    return await listPlaylistItems(youtube, id, limit);
+  } catch (error) {
+    if (!youtubePlaylistUnavailable(error)) throw error;
+    warnings.push(`Skipped ${label} because YouTube could not open it.`);
+    return [];
+  }
+}
+
+export async function findOwnedStationPlaylist(youtube: youtube_v3.Youtube, id: string) {
+  if (!id) return null;
+  try {
+    const saved = await validatePlaylist(youtube, id);
+    if (!saved) return null;
+    const own = await youtube.channels.list({ part: ["id"], mine: true });
+    if (!own.data.items?.some(channel => channel.id === saved.snippet?.channelId)) {
+      throw new Error("This playlist belongs to a different YouTube channel. Reconnect as its owner or clear the saved TV playlist in your settings.");
+    }
+    await youtube.playlistItems.list({ part: ["id"], playlistId: id, maxResults: 1 });
+    return saved;
+  } catch (error) {
+    const reason = (error as { response?: { data?: { error?: { errors?: { reason?: string }[] } } } })?.response?.data?.error?.errors?.[0]?.reason;
+    if (reason === "playlistNotFound") return null;
+    throw error;
+  }
 }
 
 export async function listOwnPlaylistTitles(youtube: youtube_v3.Youtube, maxItems = 500) {

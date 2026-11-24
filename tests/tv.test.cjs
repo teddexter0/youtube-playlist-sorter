@@ -50,14 +50,18 @@ test('metadata screening honors exclusions, age-independent respectful topics an
 });
 
 let state, inserted, failInsert, referenceError, nativeLikedIds = [];
-const ref = { update: async patch => Object.assign(state, patch), collection: () => ({ add: async () => {} }) };
+let baseline;
+const ref = { update: async patch => Object.assign(state, patch), collection: () => ({
+  add: async () => {},
+  doc: () => ({ get: async () => ({ data: () => baseline }), update: async patch => { baseline = { ...baseline, ...patch }; } })
+}) };
 const db = { collection: () => ({ doc: () => ref }), runTransaction: async fn => fn({
   get: async () => ({ data: () => state }), update: (_ref, patch) => Object.assign(state, patch)
 }) };
 const originalLoad = Module._load;
 Module._load = function(request, parent, ...args) {
   if (parent?.filename === path.resolve(__dirname, '../lib/tv.ts')) {
-    if (request === './station-refresh') return { prepareStationRefresh: async (_id, _key, _yt, items) => ({ items, held: false, token: '' }), finishStationRefresh: async () => {} };
+    if (request === './station-refresh') return { prepareStationRefresh: async (_id, _key, items) => ({ items, held: false, token: '', retiring: [], started: false }), finishStationRefresh: async () => {} };
     if (request === './station-history') return { knownSeenIds: async () => new Set(), rememberSeen: async () => {} };
     if (request === './station-sources') return { stationSources: async () => ({ origins: new Map(), warnings: [] }) };
     if (request === './playlist-order') return { orderExistingQueue: async () => [] };
@@ -74,7 +78,7 @@ Module._load = function(request, parent, ...args) {
       validatePlaylist: async () => ({ snippet: { channelId: 'mine' } }),
       listPlaylistItems: async (_youtube, playlistId) => {
         if (playlistId === 'REFERENCE' && referenceError) throw Object.assign(new Error('Reference unavailable'), { code: referenceError });
-        return inserted.map(videoId => ({ contentDetails: { videoId } }));
+        return inserted.map(videoId => ({ id: `item-${videoId}`, contentDetails: { videoId } }));
       },
       getVideos: async (_youtube, ids) => ids.map(id => ({ id, snippet: { title: 'Science documentary', description: '', channelTitle: id, channelId: id, publishedAt: '2026-10-01', liveBroadcastContent: 'none' }, contentDetails: { duration: 'PT10M' } })),
       getSubscribedChannelIds: async () => new Set(),
@@ -89,7 +93,7 @@ Module._load = originalLoad;
 const reset = () => {
   state = { userId: 'user-a', playlistIds: {}, tv: { ...defaultTvProfile, interests: ['science'], playlistId: 'TV', liveEnabled: true }, tvHistory: [] };
   state.tvPreviewHash = tvProfileHash(state.tv);
-  inserted = []; failInsert = false; referenceError = 0; nativeLikedIds = [];
+  inserted = []; failInsert = false; referenceError = 0; nativeLikedIds = []; baseline = undefined;
 };
 test('dry run writes no YouTube items; live retries do not duplicate delivered videos', async () => {
   reset();
@@ -144,8 +148,20 @@ test('partial failures preserve delivered history and release the run lock', asy
   await runTvForUser(state, 'live');
   assert.equal(new Set(inserted).size, 2);
 });
+test('release top-up verifies the existing order and honors the time budget across retries', async () => {
+  reset(); inserted = ['old-long', 'old-short'];
+  state.tv.sessionMinutes = 15;
+  const options = { manual: true, appendCycleId: 'lineup-release' };
+  const first = await runTvForUser(state, 'live', options);
+  assert.deepEqual(inserted.slice(0, 2), ['old-long', 'old-short']);
+  assert.deepEqual(first.appended, { count: 1, seconds: 600, preserved: 2, networks: [], previews: 0 });
+  const retry = await runTvForUser(state, 'live', options);
+  assert.equal(retry.videos.length, 0);
+  assert.equal(retry.appended.count, 1);
+  assert.equal(inserted.length, 3);
+});
 test('live runs reject changed preferences, concurrent runs, and Inbox as TV', async () => {
-  reset(); state.tv.sessionMinutes = 120;
+  reset(); state.tv.sessionMinutes = 105;
   await assert.rejects(runTvForUser(state, 'live'), /Preview/);
   reset(); state.tvLockUntil = Date.now() + 60000;
   await assert.rejects(runTvForUser(state, 'dry-run'), /already in progress/);

@@ -82,6 +82,6 @@ export default function StationPlayer({ playlistId }: { playlistId: string }) {
   }
   return <section className="station-player"><div className="toolbar"><button className="secondary" disabled={!playlistId || saving} onClick={watch}>Play my TV queue here</button>{open ? <button className="text-button" onClick={() => setOpen(false)}>Close player</button> : null}</div>
     {open && videos[index] ? <><div className="player-screen" ref={host} /><h3>{videos[index].title}</h3><p>{videos[index].channelTitle}</p><div className="toolbar"><button disabled={saving} onClick={() => advance("skip")}>Skip &amp; remember</button><button className="secondary" disabled={saving} onClick={() => advance("watched")}>Watched &amp; next</button><button className="text-button" disabled={saving} onClick={() => advance("block-channel")}>Less of this channel</button></div></> : null}
-    <p role="status">{message}</p><small>This plays your existing TV playlist. Hunts run on the server while this page is closed. Two minutes watched counts toward the 50% TV refresh threshold; native YouTube/TV-app progress is unavailable.</small>
+    <p role="status">{message}</p><small>Two minutes watched, finishing a shorter clip, or marking it watched counts toward the 50% refresh threshold. YouTube app playback is unavailable to TV Mix. Queues can also refresh after 48 hours.</small>
   </section>;
 }

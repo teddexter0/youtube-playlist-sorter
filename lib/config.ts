@@ -32,6 +32,8 @@ export const playlistLabels: Record<PlaylistKey, string> = {
 export type PlaylistIds = Partial<Record<PlaylistKey, string>>;
 
 export type UserSettings = {
+  schemaVersion?: 1;
+  storageMigrating?: boolean;
   userId: string;
   email?: string;
   playlistIds: PlaylistIds;
@@ -49,7 +51,9 @@ export type UserSettings = {
   tvSearchCursor?: number;
   stationProfiles?: Partial<Record<import("./station-rules").StationKey, import("./tv-profile").TvProfile>>;
   stationAutopilot?: boolean;
+  enabledStations?: import("./station-rules").StationKey[];
   personalStationVersion?: number;
+  tvLineupAppendStations?: import("./station-rules").StationKey[];
   stationCursors?: Partial<Record<import("./station-rules").StationKey, number>>;
   tvHistory?: string[];
   tvRecent?: { videoId: string; category: import("./tv-profile").TvLane; channelId: string; at: string; classicFootball?: boolean }[];

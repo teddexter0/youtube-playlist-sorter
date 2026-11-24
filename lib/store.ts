@@ -1,10 +1,26 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase";
 import type { AppLog, ProcessedVideo, UserSettings } from "@/lib/config";
+import { accountPreferencesPatch } from "./account-preferences";
+import { envValue } from "./runtime-config";
 
 export async function getUserSettings(userId: string): Promise<UserSettings | null> {
   const snap = await adminDb().collection("users").doc(userId).get();
-  return snap.exists ? (snap.data() as UserSettings) : null;
+  if (!snap.exists) return null;
+  const user = snap.data() as UserSettings;
+  const owner = envValue("PERSONAL_STATION_EMAIL");
+  const preferences = envValue("PERSONAL_STATION_PROFILE");
+  if (!accountPreferencesPatch(user, owner, preferences)) return user;
+  // Re-read inside the transaction so a concurrent edit is merged, not lost.
+  return adminDb().runTransaction(async tx => {
+    const ref = adminDb().collection("users").doc(userId);
+    const current = (await tx.get(ref)).data() as UserSettings | undefined;
+    if (!current) return null;
+    const patch = accountPreferencesPatch(current, owner, preferences);
+    if (!patch || ((current as UserSettings & { tvLockUntil?: number }).tvLockUntil ?? 0) > Date.now()) return current;
+    tx.set(ref, patch, { merge: true });
+    return { ...current, ...patch };
+  });
 }
 
 export async function upsertUserSettings(userId: string, patch: Partial<UserSettings>) {
@@ -13,6 +29,7 @@ export async function upsertUserSettings(userId: string, patch: Partial<UserSett
   await adminDb().runTransaction(async (tx) => {
     const existing = await tx.get(ref);
     tx.set(ref, {
+      schemaVersion: 1,
       ...(!existing.exists ? {
         userId,
         playlistIds: {},

@@ -13,7 +13,7 @@ Module._load=function(request,parent,...rest){
  }
  return original.call(this,request,parent,...rest);
 };
-const {tvWatchGate,recordPlayback,prepareStationRefresh,finishStationRefresh}=require('../lib/station-refresh.ts');
+const {tvWatchGate,recordPlayback,prepareStationRefresh,beginStationRefresh,finishStationRefresh}=require('../lib/station-refresh.ts');
 Module._load=original;
 const {playedSecondsDelta}=require('../lib/playback-time.ts');
 const items=Array.from({length:5},(_,i)=>({id:'item'+i,contentDetails:{videoId:'video'+i}}));
@@ -42,53 +42,87 @@ test('progress accumulates across sessions and duplicate event IDs cannot inflat
  assert.equal(data.get('users/alice/watched/video0').source,'playback');
  assert.equal(data.has('users/bob/playback/video0'),false);
 });
-test('TV remains untouched below 50 percent even with old queue entries',async()=>{
- data.clear();const deleted=[];
+test('a young TV queue remains untouched below 50 percent',async()=>{
+ data.clear();
  data.set('users/alice/playback/video0',{seconds:120});
  data.set('users/alice/playback/video1',{completed:true});
- const result=await prepareStationRefresh('alice','tv',yt(deleted),items,'day1');
- assert.equal(result.held,true);assert.equal(result.gate.required,3);assert.deepEqual(deleted,[]);
+ const result=await prepareStationRefresh('alice','tv',items,'day1');
+ assert.equal(result.held,true);assert.equal(result.gate.required,3);
  assert.equal(data.has('users/alice/stationRefresh/tv'),false);
 });
-test('qualified half clears the whole TV queue and the next daily batch is protected again',async()=>{
+
+test('an explicit refresh bypasses watch and age checks without consuming the scheduled cycle', async () => {
+ data.clear();
+ const now = Date.now();
+ const queue = items.map(item => ({ ...item, snippet: { publishedAt: new Date(now).toISOString() } }));
+ const refresh = await prepareStationRefresh('alice', 'tv', queue, undefined, now, true);
+ assert.equal(refresh.held, false);
+ assert.deepEqual(refresh.items, []);
+ assert.deepEqual(refresh.retiring, queue);
+ assert.equal(data.has('users/alice/stationRefresh/tv'), false);
+ await beginStationRefresh('alice', 'tv', refresh.token, refresh.retiring);
+ const replacement = [{ id: 'newItem', contentDetails: { videoId: 'newVideo' } }];
+ const retry = await prepareStationRefresh('alice', 'tv', [...replacement, ...queue], undefined, now, true);
+ assert.deepEqual(retry.items, replacement);
+ assert.equal(retry.token, refresh.token);
+ const deleted = [];
+ await finishStationRefresh('alice', 'tv', retry.token, yt(deleted), retry.retiring);
+ assert.deepEqual(deleted, queue.map(item => item.id));
+ data.set('users/alice/watched/newVideo', { source: 'watched' });
+ const scheduled = await prepareStationRefresh('alice', 'tv', replacement, 'evening', now);
+ assert.equal(scheduled.held, false);
+ assert.equal(scheduled.token, 'evening');
+});
+test('qualified half can replace the queue and the next batch gets its own watch threshold',async()=>{
  data.clear();const deleted=[];
  for(let i=0;i<3;i++)data.set('users/alice/playback/video'+i,{seconds:120});
- const first=await prepareStationRefresh('alice','tv',yt(deleted),items,'day1');
- assert.equal(first.held,false);assert.equal(first.items.length,0);assert.equal(deleted.length,5);
- await finishStationRefresh('alice','tv',first.token);
+ const first=await prepareStationRefresh('alice','tv',items,'day1');
+ assert.equal(first.held,false);assert.equal(first.items.length,0);assert.equal(deleted.length,0);
+ await beginStationRefresh('alice','tv',first.token,first.retiring);
+ await finishStationRefresh('alice','tv',first.token,yt(deleted),first.retiring);
  const nextItems=[{id:'newItem',contentDetails:{videoId:'newVideo'}}];
- assert.equal((await prepareStationRefresh('alice','tv',yt(deleted),nextItems,'day2')).held,true);
+ assert.equal((await prepareStationRefresh('alice','tv',nextItems,'day2')).held,true);
  assert.equal(deleted.length,5);
 });
-test('weekly refresh clears all old entries once and retries preserve newly added items',async()=>{
+test('weekly refresh saves old entries until replacement and retries preserve newly added items',async()=>{
  data.clear();const deleted=[];
- const first=await prepareStationRefresh('alice','childhood',yt(deleted),items,'week1');
- assert.equal(first.items.length,0);assert.equal(deleted.length,5);
+ const first=await prepareStationRefresh('alice','childhood',items,'week1');
+ assert.equal(first.items.length,0);assert.equal(deleted.length,0);
+ await beginStationRefresh('alice','childhood',first.token,first.retiring);
  const partial=[{id:'newItem',contentDetails:{videoId:'newVideo'}}];
- const retry=await prepareStationRefresh('alice','childhood',yt(deleted),partial,'week1');
- assert.equal(retry.items.length,1);assert.equal(deleted.length,5);
- await finishStationRefresh('alice','childhood',retry.token);
- await prepareStationRefresh('alice','childhood',yt(deleted),partial,'week2');
- assert.equal(deleted.at(-1),'newItem');assert.equal(deleted.length,6);
+ const retry=await prepareStationRefresh('alice','childhood',[...partial,...items],'week1');
+ assert.equal(retry.items.length,1);assert.equal(deleted.length,0);
+ await finishStationRefresh('alice','childhood',retry.token,yt(deleted),retry.retiring);
+ assert.deepEqual(deleted,items.map(item=>item.id));
+ assert.equal((await prepareStationRefresh('alice','childhood',partial,'week1')).retiring.length,0);
+ assert.equal((await prepareStationRefresh('alice','childhood',partial,'week2')).retiring[0].id,'newItem');
 });
-test('failed clearing resumes clearing; a failed TV refill resumes without deleting new picks',async()=>{
- data.clear();let calls=0;
- for(let i=0;i<3;i++)data.set('users/alice/playback/video'+i,{seconds:120});
- const broken={playlistItems:{delete:async()=>{if(++calls===2)throw Error('quota');}}};
- await assert.rejects(prepareStationRefresh('alice','tv',broken,items,'day1'),/quota/);
- assert.equal(data.get('users/alice/stationRefresh/tv').phase,'clearing');
- const deleted=[];
- await prepareStationRefresh('alice','tv',yt(deleted),items.slice(1),'day1');
- assert.equal(deleted.length,4);
+test('an interrupted retirement resumes without deleting replacement picks',async()=>{
+ data.clear();
+ await beginStationRefresh('alice','tv','day1',items);
+ const broken={playlistItems:{delete:async({id})=>{if(id==='item1')throw Error('quota');}}};
+ await assert.rejects(finishStationRefresh('alice','tv','day1',broken,items),/quota/);
  const partial=[{id:'newItem',contentDetails:{videoId:'newVideo'}}];
- const resumed=await prepareStationRefresh('alice','tv',yt(deleted),partial,'day2');
- assert.equal(resumed.items.length,1);assert.equal(deleted.length,4);
+ const resumed=await prepareStationRefresh('alice','tv',[...partial,...items.slice(1)],'day2');
+ assert.deepEqual(resumed.items,partial);assert.equal(resumed.token,'day1');
+ const deleted=[];
+ await finishStationRefresh('alice','tv',resumed.token,yt(deleted),resumed.retiring);
+ assert.deepEqual(deleted,items.slice(1).map(item=>item.id));
+});
+test('TV can refresh 48 hours after the last addition even with zero qualified watches',async()=>{
+ data.clear();
+ const addedAt = Date.parse('2026-11-07T16:00:00Z');
+ const oldQueue=items.map(item=>({...item,snippet:{publishedAt:new Date(addedAt).toISOString()}}));
+ assert.equal((await prepareStationRefresh('alice','tv',oldQueue,'early',addedAt+48*3600000-1)).held,true);
+ const stale=await prepareStationRefresh('alice','tv',oldQueue,'due',addedAt+48*3600000);
+ assert.equal(stale.held,false);assert.equal(stale.retiring.length,5);
+ assert.equal(data.has('users/alice/stationRefresh/tv'),false);
 });
 test('imported history, skips and delivery records cannot prove two minutes of watch time',async()=>{
  data.clear();const deleted=[];
  data.set('users/alice/watched/video0',{source:'skip'});
  data.set('users/alice/watched/video1',{source:'delivered'});
  data.set('users/alice/watched/video2',{source:'watch-history-import'});
- const first=await prepareStationRefresh('alice','tv',yt(deleted),items,'day1');
+ const first=await prepareStationRefresh('alice','tv',items,'day1');
  assert.equal(first.gate.watched,0);assert.equal(first.held,true);
 });

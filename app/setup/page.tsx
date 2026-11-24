@@ -4,13 +4,26 @@ import { aiConfigured } from "@/lib/tv-ai";
 
 export const dynamic = "force-dynamic";
 
-export default function SetupPage() {
+const authMessages: Record<string, string> = {
+  "permission-denied": "Google sign-in was cancelled or access was declined.",
+  "youtube-permission": "Google signed you in, but YouTube access was unchecked. Reconnect and select the YouTube permission on the consent screen.",
+  "offline-access": "Google did not provide working background access. Reconnect with the Google account that owns your playlist and allow YouTube access.",
+  quota: "The YouTube API quota is exhausted. Try connecting again after it resets.",
+  "connection-failed": "The connection check failed. Try again from this page."
+};
+
+export default function SetupPage({ searchParams }: { searchParams?: { authError?: string } }) {
   const missing = missingGoogleConfig();
   const firebase = ["FIREBASE_PROJECT_ID", "FIREBASE_CLIENT_EMAIL", "FIREBASE_PRIVATE_KEY"].every((key) => envValue(key));
   const projectNumber = envValue("GOOGLE_CLIENT_ID").match(/^\d+/)?.[0];
+  const reason = searchParams?.authError;
+  const authError = reason && Object.prototype.hasOwnProperty.call(authMessages, reason) ? authMessages[reason] : "";
   return <section className="panel">
     <p className="eyebrow">GOOGLE / YOUTUBE SIGN-IN</p><h1>{missing.length ? "Google sign-in is being configured." : "Ready to connect your YouTube account."}</h1>
-    <p>You will sign in with your normal Google account and approve YouTube access. Your likes and subscriptions help build your starting taste profile. Regular users do not need a Google Cloud project.</p>
+    <p>Connect the Google account and YouTube channel you want to use for Personal TV. Approve YouTube access so Personal TV can read your likes and subscriptions and update your playlists while you are away.</p>
+    {!missing.length && <p className="fineprint">Google may show an unverified-app warning while ownership and permission checks are pending.</p>}
+    {authError && <p className="tv-error" role="alert">{authError}</p>}
+    {!missing.length && <div className="toolbar"><a className="button" href="/api/auth/google/start">{authError ? "Reconnect Google" : "Connect Google"}</a><Link href="/privacy">How we use YouTube access</Link></div>}
     <details><summary>App owner: connection setup and status</summary>
     <p>Google/YouTube sign-in: {missing.length ? "needs configuration" : "configured"}<br />Firebase connection settings: {firebase ? "present" : "incomplete"}<br />AI Gateway authentication: {aiConfigured() ? "configured" : "not configured"}</p>
     {missing.length ? <>
@@ -19,7 +32,7 @@ export default function SetupPage() {
       <code>https://youtube-playlist-sorter-kappa.vercel.app/api/auth/google/callback</code>
       <p>Save the client ID and client secret privately in this Vercel project&apos;s production environment, then redeploy. Do not paste the secret into chat. While the consent screen is in testing, add your Google account as a test user. Google testing-mode refresh tokens can expire; broader use needs the relevant Google publishing/verification steps.</p>
       <div className="toolbar"><a className="button" href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">Open Google Cloud credentials</a><a className="button secondary" href="https://vercel.com/teddexter0-4827s-projects/youtube-playlist-sorter/settings/environment-variables" target="_blank" rel="noreferrer">Open Vercel settings</a></div>
-    </> : <a className="button" href="/api/auth/google/start">Connect Google</a>}
+    </> : null}
     <h2>Let other people bring their own accounts</h2>
     <p>Account isolation is handled by the app. Google&apos;s audience and verification settings are a separate launch requirement. In Testing, only listed test users can sign in; deployment alone does not open access to everyone.</p>
     <ol><li>Open Google Auth Platform → Audience. For a public launch, use External / In production, and finish any verification Google requests.</li><li>In Branding, use this site&apos;s home page, <code>https://youtube-playlist-sorter-kappa.vercel.app/privacy</code> and <code>https://youtube-playlist-sorter-kappa.vercel.app/terms</code>.</li><li>Confirm your support email, domain ownership, requested scopes and verification demonstration in Google&apos;s Verification Center.</li><li>Test in a separate browser profile using a second Google account. It should begin with its own interests and an empty private queue, never another person&apos;s data.</li></ol>

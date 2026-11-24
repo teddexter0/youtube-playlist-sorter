@@ -15,5 +15,5 @@ export function namesFromImdbCsv(text: string) {
   }
   const column = rows[0]?.findIndex(value => /^(name|primary name|title)$/i.test(value.trim().replace(/^\uFEFF/,""))) ?? -1;
   if (column < 0) return [];
-  return [...new Set(rows.slice(1).map(row => row[column]?.trim()).filter((name): name is string => Boolean(name && name.length >= 2 && name.length <= 80)))].slice(0, 100);
+  return [...new Set(rows.slice(1).map(row => row[column]?.trim()).filter((name): name is string => Boolean(name && name.length >= 2 && name.length <= 80)))].slice(0, 500);
 }

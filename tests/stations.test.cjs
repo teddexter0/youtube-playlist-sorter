@@ -32,6 +32,15 @@ test('faith is subscription-only and life-skills talks are allowed in their own 
   assert.equal(passesMetadataFilter(video('b',{title:'First aid lecture and practical skills',durationSeconds:2000}),life,now),true);
 });
 
+test('pop culture requires matching recent metadata and ranks by views per day',()=>{
+  const profile=tvProfileSchema.parse({stationMode:'popculture',lightViewing:false});
+  const low=video('slow',{title:'Emmys awards recap',viewCount:800});
+  const fast=video('fast',{title:'Emmys awards recap',viewCount:90000});
+  const generic=video('generic',{title:'Interview with a software engineer',topic:'celebrity news',viewCount:1000000});
+  const old=video('old',{title:'Emmys awards recap',publishedAt:'2026-09-01',viewCount:1000000});
+  assert.deepEqual(selectTvMix([low,generic,old,fast],profile,new Set(),now).map(v=>v.videoId),['fast','slow']);
+});
+
 test('Nairobi Friday/Saturday schedules use different slots and never leak weekly jobs into other days',()=>{
   assert.deepEqual(dueStations('evening',new Date('2026-11-06T16:00:00Z')),['tv','faith']);
   assert.deepEqual(dueStations('morning',new Date('2026-11-07T06:00:00Z')),['childhood','popculture','lifeskills']);
@@ -54,7 +63,7 @@ test('personal presets do not seed other users with the owner interests or celeb
 
 test('trailers need studio provenance and required lanes win slots when available',()=>{
   const p=tvProfileSchema.parse({mandatoryDaily:true,sessionMinutes:15,interests:['Travel','Chess','Cars','Comedy','Film','Tech']});
-  const trailer=video('trailer',{title:'Official new movie trailer',officialTrailer:true,durationSeconds:90});
+  const trailer=video('trailer',{title:'Official new movie trailer',officialTrailer:true,durationSeconds:210});
   assert.equal(passesMetadataFilter({...trailer,officialTrailer:false},p,now),false);
   const candidates=[...Array.from({length:10},(_,i)=>video('tech'+i,{score:1})),trailer,video('football',{title:'Premier League official highlights',durationSeconds:300})];
   const mix=selectTvMix(candidates,p,new Set(),now);

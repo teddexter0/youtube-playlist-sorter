@@ -80,8 +80,9 @@ test('celebrity affinity permits short favourites without opening heavy conversa
   }
 });
 
-test('fresh trailers admit short official clips; old trailers and stale sports stay out', () => {
-  assert.equal(passesMetadataFilter(video('a', { title: 'Official movie trailer', durationSeconds: 95 }), defaultTvProfile, now), true);
+test('fresh long-form trailers are eligible; Shorts-duration clips, old trailers and stale sports stay out', () => {
+  assert.equal(passesMetadataFilter(video('a', { title: 'Official movie trailer', durationSeconds: 210 }), defaultTvProfile, now), true);
+  assert.equal(passesMetadataFilter(video('a', { title: 'Official movie trailer', durationSeconds: 95 }), defaultTvProfile, now), false);
   assert.equal(passesMetadataFilter(video('a', { title: 'Official movie trailer', durationSeconds: 95, publishedAt: '2025-01-01' }), defaultTvProfile, now), false);
   for (const title of ['WWE highlights', 'Ligue 1 highlights', 'Bundesliga match highlights']) {
     assert.equal(passesMetadataFilter(video('a', { title, publishedAt: '2026-10-01' }), defaultTvProfile, now), false, title);
@@ -89,4 +90,40 @@ test('fresh trailers admit short official clips; old trailers and stale sports s
   assert.equal(categoryForVideo(video('a', { title: 'Gameranx Falcon: new games' })), 'gaming');
   assert.equal(categoryForVideo(video('a', { title: 'Magnus Carlsen brilliant chess game' })), 'chess');
   assert.equal(categoryForVideo(video('a', { title: 'Met Gala best looks' })), 'fashion');
+});
+
+test('short official TV previews are eligible in family mode and remain subject to screening', () => {
+  const p = { ...defaultTvProfile, strictComfort: true, mandatoryDaily: true };
+  const promo = video('a', { title: 'Family Game Night | Season 2 Promo', channelTitle: 'NBC', durationSeconds: 95, officialNetwork: true, officialTrailer: true });
+  assert.equal(categoryForVideo(promo), 'trailers');
+  assert.equal(passesMetadataFilter(promo, p, now), true);
+  for (const patch of [
+    { officialTrailer: false }, { title: 'Family Game Night Season 2 Promo #Shorts' },
+    { title: 'Season 2 Trailer | Red Band' }, { matureRating: true },
+    { description: 'This preview includes strong language and nudity.' },
+    { description: 'A Sunday service with Bible study.' },
+    { title: 'Quantum Mechanics Masterclass | Official Trailer' }
+  ]) {
+    assert.equal(passesMetadataFilter({ ...promo, ...patch }, p, now), false, JSON.stringify(patch));
+  }
+  assert.equal(passesMetadataFilter(video('b', { title: 'Mountain wildlife', durationSeconds: 35 * 60 }), p, now), false);
+});
+
+test('two-hour compact mix fits many clips, rotates official networks, and honors smaller requested runtimes', () => {
+  assert.equal(defaultTvProfile.sessionMinutes, 120);
+  const p = { ...defaultTvProfile, strictComfort: true, mandatoryDaily: true };
+  const lanes = ['football', 'technology', 'travel', 'nature', 'music', 'food', 'comedy', 'gaming'];
+  const pool = lanes.flatMap(category => Array.from({ length: 6 }, (_, i) =>
+    video(`${category}-${i}`, { category, durationSeconds: [250, 310, 420, 465, 800, 1050][i] })));
+  for (let i = 0; i < 5; i++) pool.push(video(`network-${i}`, {
+    title: `Official Season ${i + 1} Promo`, officialNetwork: true, officialTrailer: true, durationSeconds: 105
+  }));
+  const mix = selectTvMix(pool, p, new Set(), now);
+  const total = mix.reduce((sum, v) => sum + v.durationSeconds, 0);
+  assert.ok(mix.length > 12);
+  assert.ok(mix.filter(v => v.officialNetwork).length >= 3);
+  assert.ok(total >= 110 * 60 && total <= 120 * 60);
+  assert.ok(mix.every((v, i) => i === 0 || categoryForVideo(v) !== categoryForVideo(mix[i - 1])));
+  const resumed = selectTvMix(pool, { ...p, sessionMinutes: 30 }, new Set(), now, { deliveredSeconds: 600 });
+  assert.ok(resumed.reduce((sum, v) => sum + v.durationSeconds, 600) <= 30 * 60);
 });

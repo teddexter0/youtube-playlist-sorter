@@ -1,4 +1,5 @@
 import { playlistLabels, type PlaylistKey } from "@/lib/config";
+import { isLongFormVideo } from "./video-format";
 
 export type VideoForClassification = {
   title: string;
@@ -108,6 +109,7 @@ const channelAffinity: Array<{
 ];
 
 export function classifyVideo(video: VideoForClassification): Classification {
+  if (!isLongFormVideo(video)) return { keepInInbox: true, confidence: 1, reason: "Excluded by the no-Shorts policy: marked Shorts or duration at most three minutes." };
   const haystack = [
     video.title,
     video.description ?? "",

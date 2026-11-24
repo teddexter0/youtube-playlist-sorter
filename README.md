@@ -1,52 +1,98 @@
-# YouTube Playlist Sorter + Personal TV
+# Playlist Sorter & Personal TV
 
-## Broadcast refresh — November 2026
+Organise saved YouTube videos and build personalised playlists from your interests, subscriptions and likes. Play the resulting playlists in YouTube on desktop, mobile or TV.
 
-- Three UI colours (cream, ink, tangerine), large open-source rounded/block/script typography, shuffled stock scenery, an optional muted Pexels sunset clip, original vector scenes and perspective-projected Canvas 2D orbital motion. The CRT screen responds to pointer/scroll; the mascot follows the pointer. Pause and reduced-motion support are included. Essential controls remain easy to click. No paid stock-media API calls; external media/fonts can fail and have local CSS/vector fallbacks. Media credits: `/credits`.
-- Profiles now include comfort viewing, a 1–4 maximum per canonical topic, a discovery target, optional European/World Cup football preference and an optional monthly motorsport cameo. The topic and two-per-channel caps include videos already queued. Previously queued excess is reported, not silently deleted. Related search phrases share one canonical category, so different football queries cannot each use a separate cap.
-- Comfort mode screens podcast/lecture/philosophy/debate and raunchy dating/relationship-advice metadata. Short football analysis can remain. Short celebrity interviews require explicit favourite names in metadata mode; opt-in AI may additionally assess affinity from the account's liked titles. SNL sketches and award monologues remain eligible. Official trailer clips may be as short as 60 seconds. News is limited to eight minutes and seven days old; monthly motorsport requires a recent clip and is suppressed after an app-delivered motorsport pick in the preceding 31 days. These are metadata heuristics, not full-video certification.
-- Discovery searches six account interests plus two broader topics (or eight account interests with discovery off), one query per topic within the same eight-call budget. A per-user cursor advances after successful live discovery and resets when interests change. Fresh sports highlights use a seven-day window, trailers a 30-day window; evergreen topics can supply archive candidates. Variety, discovery and archive percentages are soft targets constrained by availability, duration and the hard caps. Recent category history gently changes priorities over three days. All history and feedback remain under the signed-in account.
-- **Build the weekend mix** is an explicit per-user preset-and-build action. New accounts import their own likes/subscriptions; they do not inherit Ted's tastes or another user's data. The expanded 46-interest preset spans trailers, SNL, chess, Gameranx/Falcon, European football, WWE, fashion, awards, art, books, Spanish, health/science, tech, music, travel and more. Profiles accept up to 60 interests. Refreshing YouTube taste merges into existing interests. Newsletter topics informed the optional preset, but no emails or email integration are stored in the app.
-- Account switching requests Google's account picker. Sign-out, private/no-store settings responses, same-origin checks, and per-account disconnect/data deletion are included. Disconnect attempts token revocation and recursively deletes that user's app records; it does not delete YouTube playlists. Failed revocation is reported with instructions for Google Account connections.
-- `/privacy`, `/terms` and `/setup` provide the Google public-launch pages/checklist. The app supports separate Google users, but Google's External/In production and any verification requirements must be completed in Google Cloud. Presence of OAuth credentials or a successful deployment is not proof that unrestricted public sign-in is enabled. Second-account and real YouTube write tests still require those accounts' consent.
-- The supplied example playlist `PLWeUCzNh1s1g` could not be fetched through the available public retrieval tools. The preset is based on the written viewing brief, not a claim to have inspected its contents.
+## Features
 
-## Personal TV: the refined goal
+- Google sign-in with separate settings, playlists and feedback for each account.
+- Inbox sorting into configured categories.
+- TV discovery using interests, subscriptions, likes and reference playlists.
+- Duration budgets, topic limits, discovery preferences and optional content filters.
+- Up to four viewer-defined automatic playlists for new accounts; existing lineups are preserved.
+- Optional sports selections, familiar people and controlled guest discovery. Simple descriptions and detailed interests both work.
+- Full-page scenic backgrounds, visible navigation and an optional guided tour.
+- Preview selections before enabling scheduled updates.
+- Optional AI ranking for relevance and metadata-based suitability checks.
+- Like, skip, watched and block-channel feedback.
+- Childhood recommendations based on an account's own show catalogue and reference links, rather than generic children's entertainment.
+- A directory of official studio/streaming playlists and discovery from publisher-owned trailer collections.
+- Account disconnect and deletion of the signed-in account's app data.
 
-Open YouTube at the end of the day and have a varied playlist ready, without spending an hour collecting videos first. `/tv` adds discovery alongside the existing Inbox sorter. It produces a normal YouTube playlist you can open on phone, desktop or TV. Start playback in YouTube and cast using YouTube's controls; this app does not remotely start playback or casting. Your laptop can be off when the app is deployed with working scheduled execution.
+## How it works
 
-### Implemented
+Google OAuth and the YouTube Data API provide authorised account signals and playlist management. Initial interests come from a bounded sample of up to 50 liked videos and 500 subscriptions. Users can adjust their interests at any time.
 
-- Google/YouTube sign-in imports a starting interest profile from a bounded sample of up to 50 liked videos and 500 subscriptions, using YouTube topic metadata. The **Build my TV playlist** action creates or reconnects a private TV playlist and fills it immediately. Deleted playlists are recreated only after a confirmed missing result; permission/quota failures are surfaced without creating duplicates. **Refresh interests from YouTube** imports the profile without adding videos. Subscribed channel names are a fallback if topic metadata is unavailable. Empty accounts can enter interests manually. There is no automatic import of ChatGPT memories.
-- Separate per-user avoid terms, seed playlists, duration budget and older-content target. Optional native YouTube likes guide AI taste matching and suppress those exact videos from replay. Subscription uploads supply candidates. Example interests remain opt-in. Subscription-topic metadata also guides one discovery query and six rotating subscribed upload feeds; it does not bypass destination or comfort filters.
-- Search up to eight rotating topics per run, using fresh windows for current formats and archive searches for eligible evergreen formats. Unreadable 400/404 reference playlists warn without stopping other discovery; authorization/quota failures remain errors. Sample six rotating subscribed channels' uploads and up to three seed playlists. Subscriptions alone are not a complete picture of someone's interests.
-- Build up to 12 picks within a 15–240 minute budget, with at most two videos per channel and preference for alternating topics. The archive percentage is a soft count target; availability, diversity and duration can override it. This is a lineup budget per top-up, not a cap on total runtime already queued.
-- Optional AI relevance and shared-TV suitability ranking using Vercel AI Gateway. Only supplied candidate IDs can be selected. Reject omitted, unsuitable or low-scored candidates. AI errors stop the run rather than bypassing the filter.
-- Conservative shared-TV search/metadata screening. Respectful coverage of a religion, race, orientation or political view is not a reason for exclusion. Metadata and AI cannot guarantee that actual video/audio content will offend nobody. No transcript or full-video analysis is currently performed.
-- Manual builds and **Add videos now** work without enabling daily updates. Preview or complete a manual build before enabling daily live top-ups. Changing profile preferences requires another preview. A live run discovers again; it does not publish an immutable copy of the preview.
-- Use a dedicated TV playlist, capped at 40 queued items. Duration ordering is enabled with station autopilot; new weekly hunts replace their contents and TV replacement requires the watched-count threshold. TV is not part of the Inbox cleanup history.
-- Avoid current playlist duplicates, the latest 500 delivered IDs and up to 300 explicit feedback entries. Per-user run leases prevent concurrent app runs; partial successes are recorded individually. A YouTube success followed by a database/network failure cannot be made fully atomic across the two services; a retry rechecks the target playlist.
-- Like, skip, watched and block-channel controls, including entering a video ID after watching on TV. Likes inform AI ranking; skip/watched suppress that video; channel blocks suppress that channel. Explicit app skip/watched feedback hides it from the in-app player while preserving the YouTube queue until the refresh threshold is met. Native YouTube skips are not observed.
-- The existing daily sort cron also processes users with `tv.liveEnabled`, independently of Inbox sorting being enabled, at **7pm Nairobi time** (`0 16 * * *` UTC). API handlers request up to 300 seconds; verify your hosting plan permits that runtime. Multi-user scale will require a job queue/per-user scheduling and a quota budget.
+Discovery combines topic searches, subscription uploads and reference playlists. Selection applies duration and diversity rules, avoids previously delivered videos and respects explicit feedback. Without AI, selection uses metadata and deterministic rules. Skips suppress individual videos rather than training a general negative-interest model.
 
-### Set up your first lineup
+Scheduled jobs run on the server, so the website does not need to remain open. Enabled updates, valid Google access, hosting configuration and sufficient API quota are required.
 
-1. Configure Google OAuth, YouTube Data API, the existing Firebase Admin connection, encryption and cron secret using `.env.example`. Confirm the intended Firestore database and its edition before provisioning or changing infrastructure; no database is provisioned by this change.
-2. Connect your Google/YouTube account. Open `/tv` and click **Build my TV playlist** to import initial taste signals, create/reconnect a private TV playlist and add videos immediately. Existing saved interests are preserved. The result reports videos added, no eligible picks, or a specific fill failure.
-3. Review or refine the suggested interests, optionally add seed playlists, choose your budget, and save with daily TV off. No Inbox or category playlists are required for TV mode.
-4. Preview. Inspect the reasons and mix. Enable daily TV and save again. Use **Add videos now** for another manual fill; daily runs only happen after you opt in.
-5. Open the playlist in the YouTube mobile app, play and cast as usual. Provide explicit feedback here when useful.
+Station autopilot supports themed weekly playlists. Failed or missed weekly hunts can retry on the next evening check. TV can replace the queue once half the videos qualify as watched or the queue is 48 hours old. Two minutes of recorded playback, completing a shorter clip, or explicitly marking a video watched qualifies. The current queue stays in place until replacement picks reach YouTube. Except for Childhood Recaps, ranking also uses views per day since publication as a signal for recent popularity.
 
-AI ranking is optional and **billed separately from ChatGPT subscriptions**. On Vercel, authentication uses the deployment's `VERCEL_OIDC_TOKEN`; an explicit `AI_GATEWAY_API_KEY` takes precedence when supplied. Set server-only `TV_AI_MODEL` to a current gateway model supporting Chat Completions JSON-schema output. Local/external hosting also needs an AI Gateway key or a valid pulled OIDC token. Enable the UI toggle only if you consent to sending your interests, avoid terms, candidate metadata and explicitly liked video titles to that provider. No model ID is hardcoded in source. Without AI, the app uses search relevance, metadata screening and diversity rules; it does not claim ChatGPT-level taste matching. The native REST integration adds no SDK dependency. Gateway credits or customer verification can still be required.
+## Account data and personalisation
 
-### Platform limits and remaining validation
+Firestore stores documents and fields rather than SQL rows and columns. Records are scoped to `users/{googleUserId}`. Server handlers obtain this ID from the signed session, rather than trusting a browser-supplied user ID.
 
-- Official YouTube APIs cannot access Watch Later or personal watch history/progress. A normal TV/Inbox playlist is supported. Truly automatic learning from native playback would need another consented integration, such as a browser extension; that is not implemented.
-- This release does not promise human-equivalent recommendation accuracy. Validate several evenings of picks, record relevance/suitability feedback, and refine interests before relying on it unattended. Skips only suppress their exact video; they do not yet train a negative-interest model.
-- Every preview/live run can make up to eight search calls plus subscription, playlist, video and insert calls. Repeated previews consume API quota; this is not a zero-cost unlimited service. Production scaling needs rate limiting and shared quota accounting.
-- The linked production project has Google OAuth, Firebase and encryption settings configured; the live health check reports readiness. Google public-consent publication/verification status remains unconfirmed. `/setup` identifies incomplete settings; `/api/health` checks database access and reports readiness without returning user data or secrets. Real OAuth, database edition/indexes, gateway model compatibility, playlist writes, scheduled execution, playback and phone-to-TV casting require a connected account. Mock tests cover selection, run gates, duplicate prevention, partial failures and AI failure behavior.
+| Record or field | Purpose |
+| --- | --- |
+| `playlistIds`, `tv`, `stationProfiles` | Destinations, interests, duration limits and station preferences |
+| `enabledStations`, `stationProfiles.*.displayName` | Explicitly selected automatic channels and their names; new accounts start with the main TV mix only |
+| `tv.selectedSports`, `favoriteCelebrities`, `celebrityDiscoveryPercent` | Account-specific sports searches, up to 500 familiar names, and new-guest discovery |
+| `stationProfiles.childhood.franchises`, `referenceUrls`, `preferredHandles` | Account-specific nostalgia titles, source references and preferred recap creators |
+| `tvFeedback` | Like, skip, watched or channel-block actions, channel IDs and timestamps |
+| `tvHistory`, `tvRecent` | Recent deliveries, categories, channels and timestamps for variety and repeat prevention |
+| `tvSearchCursor`, `stationCursors` | Rotate discovery topics between successful runs |
+| `watched/{videoId}` | Seen-video records with source and timestamp; delivery is not proof of watching |
+| `playback/{videoId}` | App-recorded seconds, completion state and recent event IDs for deduplication |
+| `stationRefresh/{station}` | Refresh cycle, phase and timestamp for retries |
+| `processedVideos`, `targetPlaylistCache`, `logs` | Inbox processing, duplicate checks and operational diagnostics |
+| `encryptedRefreshToken` | Encrypted Google background-access token, excluded from browser settings responses |
 
-### Verification
+These records support account-specific recommendations and reliability. They do not provide native YouTube history access, and the app does not train a custom AI model on user data. Account deletion removes nested app records and attempts token revocation; YouTube playlists remain in the user's account.
+
+The account document is versioned and stores bounded preference/history summaries. Per-video playback, seen records, processed items and logs live in subcollections rather than an ever-growing account document. Playback and run claims use transactions; event IDs prevent duplicate playback samples from inflating counts. Public channel facts are cached separately from private account preferences. Studio selections belong to each account's `tv.studioHandles`; they supplement trailers and scene clips without replacing its other discovery sources.
+
+OAuth start and callback handlers are dynamic and uncached. Sign-in starts on the registered callback host so state cookies remain on the correct domain across aliases.
+
+## Setup
+
+Requirements: Node.js with npm, a Google Cloud OAuth client with YouTube Data API enabled, Firebase Admin credentials for an existing Firestore database, and a host capable of scheduled execution.
+
+1. Run `npm install`.
+2. Copy `.env.example` to `.env.local` and supply Google OAuth, Firebase Admin, token-encryption and cron settings. Keep credentials server-side and out of version control.
+3. Register the exact callback URL for your environment in Google Cloud: `/api/auth/google/callback`.
+4. Run `npm run dev` and open `http://localhost:3000`.
+5. Connect Google and open `/tv` to build a playlist. For Inbox sorting, configure and validate source and destination playlist IDs.
+6. Review a preview before enabling live scheduled processing. `/setup` and `/api/health` report configuration readiness.
+
+To accept users beyond listed testers, configure Google's OAuth audience and publishing status appropriately and complete any required verification. Application code or a readiness response alone does not establish public OAuth approval.
+
+### Optional AI ranking
+
+Configure `TV_AI_MODEL` with a supported Vercel AI Gateway model. Authentication uses `AI_GATEWAY_API_KEY` or Vercel OIDC credentials when available. AI usage is billed separately from ChatGPT subscriptions.
+
+When enabled, ranking sends configured interests, avoid terms, relevant liked-video titles and candidate metadata to the configured provider. It assesses metadata rather than full video or audio. Failed AI ranking stops the run rather than bypassing the configured filter.
+
+### Scheduling
+
+`vercel.json` defines daily processing at 16:00 UTC (19:00 Africa/Nairobi) and an additional Saturday station slot at 06:00 UTC (09:00 Africa/Nairobi). Station cadence and account settings determine which playlists run.
+
+Protect cron endpoints with `CRON_SECRET`. Confirm hosting support for the schedules and requested function runtime. Larger deployments need per-user jobs, rate limiting and quota accounting.
+
+## Limitations
+
+- Marked Shorts and all videos of three minutes or less are excluded across discovery and Inbox sorting. This conservative policy also excludes ordinary short trailers and clips, because public API metadata cannot reliably identify their source aspect ratio.
+- Horror exclusion uses title/description screening and, when enabled, AI assessment. An approved studio does not override that setting; neither method certifies unseen video content.
+- The YouTube Data API does not expose personal watch history, native-app playback progress or Watch Later. Use a regular Inbox playlist for sorting.
+- Automatic playback counting currently works only in the app's player. Native YouTube or TV-app viewing cannot satisfy the TV refresh threshold automatically. Manual watched marks are supported.
+- Takeout history imports can suppress previously seen videos but do not verify playback duration. Google's separate Data Portability API supports recurring exports in eligible regions; it is not integrated here and currently does not list Kenya as supported.
+- Metadata filters and AI cannot guarantee an entire video's contents or suitability.
+- Search and playlist operations consume API quota. Google access may expire or be revoked.
+- YouTube writes and Firestore updates cannot form a single atomic transaction. Run leases, recorded successes and playlist rechecks reduce duplicate work after partial failures.
+- Public sign-in, playlist writes, AI requests and scheduled jobs require verification against the actual deployment and a consenting account. Local mock tests do not establish live readiness.
+
+Inbox cleanup removes app-sorted playlist entries after 14 days (`age`) or after the user adds them to a configured Done playlist (`done`). It removes playlist entries, not underlying videos.
+
+## Development checks
 
 ```bash
 npm test
@@ -55,37 +101,14 @@ npx tsc --noEmit
 npm run build
 ```
 
-## Original Inbox sorter
+Builds do not create, clear or refill playlists. Account-specific preference repairs merge into the matching account when it signs in; other accounts are unchanged. Actual playlist writes happen only through the existing enabled jobs or explicit build actions.
 
-Do you use YouTube? Plethora of interests in channels? Procrastinated Watch Laters? Then try this thing over here. It auto-sifts your dynamic tastes into curated playlists from what you would otherwise spend less optimal, less interested time going down in Watch Later. As per the API, we cannot officially use Watch Later, so make your own playlist called `Inbox`. Add your kind of videos there: sports highlights and analysis, cartoon recaps, celebrity tabloids, fashion trends, philosophy education, cars, games, faith, money reminders, name it. Let the magic work.
+## Stack and references
 
-Tech stack: Next.js 14 App Router, TypeScript, Firebase Firestore, Google OAuth, YouTube Data API v3, and Vercel Cron. The cron runs daily at 7pm EAT using `0 16 * * *` UTC, starts in dry-run mode, stores encrypted refresh tokens, avoids duplicate playlist inserts, inserts target videos in ascending duration order, and only removes playlist items during cleanup.
+Next.js 14 App Router, React, TypeScript, Firebase Admin / Firestore, Google OAuth, YouTube Data API v3 and Vercel Cron. Optional ranking uses Vercel AI Gateway.
 
-## Sorting rules
+Public information pages: `/privacy`, `/terms` and `/credits`.
 
-Classification is deterministic and uses title, description, hashtags, tags, top relevant comments, owner channel title, owner channel ID, duration, and whether the owner channel is in your subscriptions. Niche terms to their specific playlists of choice
-
-Target playlists are kept in ascending video length by inserting each new video at the position where its duration belongs, shortest at the top and longest at the bottom.
-
-## Cleanup limits
-
-The YouTube Data API does not expose personal watch-progress percentages such as "watched more than 60%." The supported cleanup modes are therefore:
-
-- `age`: remove sorted playlist items after they have been in the target playlist for at least 14 days.
-- `done`: remove sorted playlist items only after you add the video to the configured `Done` playlist.
-
-Industry-standard workarounds for true watch-progress cleanup are a small browser extension that records local YouTube progress into your own backend, or a manual `Done` playlist. The app keeps the official API-only path by default.
-
-## Environment
-
-Copy `.env.example` to `.env.local` and fill in Google OAuth, Firebase Admin, encryption, and cron values. Generate `GOOGLE_TOKEN_ENCRYPTION_KEY` as a long random string or a 64-character hex key.
-
-## Local dev
-
-```bash
-npm install
-npm run dev
-```
-
-Open `http://localhost:3000`, connect Google, paste playlist URLs or IDs, validate them, then run a dry-run scan before enabling live sorting.
-
+- [YouTube Data API](https://developers.google.com/youtube/data)
+- [Google Data Portability availability](https://support.google.com/accounts/answer/14452558)
+- [Data Portability recurring access](https://developers.google.com/data-portability/user-guide/time-based)

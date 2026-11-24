@@ -32,8 +32,10 @@ Module._load = function(request, parent, ...args) {
       '@/lib/firebase': { adminDb: () => db },
       '@/lib/playlist': { parsePlaylistId: value => value },
       '@/lib/tv-profile': require('../lib/tv-profile.ts'),
+      '@/lib/station-rules': require('../lib/station-rules.ts'),
+      '@/lib/publishers': { searchPublishers: async () => [], publisherFromChannel: channel => ({channelId:channel.id,title:channel.snippet?.title??''}) },
       '@/lib/tv-error': require('../lib/tv-error.ts'),
-      '@/lib/tv': { runTvForUser: async (user, mode, options) => {
+      '@/lib/tv': { tvProfileHash: () => 'profile-hash', runTvForUser: async (user, mode, options) => {
         assert.equal(state.tvLockUntil, 0, 'setup releases the lease before filling');
         runs.push({ user, mode, options });
         if (runFails) throw new Error('YouTube quota exceeded');
@@ -45,7 +47,8 @@ Module._load = function(request, parent, ...args) {
           return { interests: ['Science', 'Football'], subscriptionCount: 12, likedCount: 25 };
         },
         listOwnPlaylistTitles: async () => new Set(), uniquePlaylistTitle: title => title,
-        validatePlaylist: async () => {
+        findOwnedStationPlaylist: async () => {
+          if (playlistError?.response?.status === 404) return null;
           if (playlistError) throw playlistError;
           return playlistExists ? { snippet: { channelId: 'mine' } } : null;
         },
@@ -110,7 +113,7 @@ test('build creates and fills in one action while keeping daily updates off', as
   assert.equal(result.body.run.videos.length, 1);
   assert.equal(runs[0].user.tv.playlistId, 'private-tv');
   assert.deepEqual(runs[0].user.tv.interests, ['My saved topic']);
-  assert.deepEqual(runs[0].options, { manual: true });
+  assert.deepEqual(runs[0].options, { manual: true, appendLimit: 40 });
   assert.equal(state.tv.liveEnabled, false);
   assert.equal(creates.length, 1);
 });
@@ -150,11 +153,15 @@ test('failed fill reports the reason and retries reuse the created playlist', as
   assert.equal(retry.body.run.videos.length, 1);
 });
 
-test('building preserves an existing daily schedule and custom source choices', async () => {
+test('manual top-up bypasses replacement and preserves the daily schedule and source choices', async () => {
   reset(); state.tv.liveEnabled = true; state.tv.useSubscriptions = false;
+  state.stationAutopilot = true;
   const result = await POST({ json: async () => ({ action: 'start' }) });
   assert.equal(result.body.profile.liveEnabled, true);
   assert.equal(result.body.profile.useSubscriptions, false);
+  assert.equal(state.stationAutopilot, true);
+  assert.equal(runs[0].options.appendLimit, 40);
+  assert.equal(runs[0].options.forceRefresh, undefined);
 });
 
 
@@ -179,4 +186,44 @@ test('playback progress uses signed-in identity and bounds every sample', async 
   assert.equal((await POST({ headers: { get: () => 'https://evil.example' }, json: async () => body })).status, 403);
   signedIn = false;
   assert.equal((await POST({ json: async () => body })).status, 401);
+});
+
+test('custom channel choices keep existing destinations and never accept a body user identity', async () => {
+  reset(); state.tv.playlistId = 'existing-tv'; state.tv.interests = ['Pottery'];
+  state.tvFeedback = { prior: { action: 'like' } }; state.stationAutopilot = true;
+  const result = await POST({ json: async () => ({ action: 'save-stations', userId: 'other', stations: [
+    { key: 'tv', name: 'My evening', interests: ['Pottery'] },
+    { key: 'custom1', name: 'My ceramics channel', interests: ['Ceramics studio tours'] }
+  ] }) });
+  assert.equal(result.status, 200);
+  assert.equal(state.tv.playlistId, 'existing-tv');
+  assert.deepEqual(state.tv.interests, ['Pottery']);
+  assert.equal(state.stationProfiles.custom1.displayName, 'My ceramics channel');
+  assert.equal(state.stationProfiles.custom1.stationMode, 'tv');
+  assert.deepEqual(state.enabledStations, ['tv', 'custom1']);
+  assert.equal(state.tvFeedback.prior.action, 'like');
+  assert.equal(state.stationAutopilot, false);
+  assert.equal(creates.length, 0);
+});
+
+test('new accounts cannot enable five channels, duplicate keys, or empty extra topics', async () => {
+  reset();
+  const row = key => ({ key, name: key, interests: ['My hobby'] });
+  for (const stations of [ ['tv','childhood','faith','popculture','lifeskills'].map(row), [row('tv'),row('custom1'),row('custom1')], [row('tv'),{...row('custom1'),interests:[]}] ]) {
+    const result = await POST({ json: async () => ({ action: 'save-stations', stations }) });
+    assert.equal(result.status, 400);
+    assert.equal(state.enabledStations, undefined);
+  }
+});
+
+test('channel edits require the signed-in account and preserve a legacy owner lineup', async () => {
+  reset(); signedIn = false;
+  const stations = [{key:'tv',name:'TV',interests:['Art']}];
+  assert.equal((await POST({ json: async () => ({ action:'save-stations', stations }) })).status, 401);
+  signedIn = true; state.personalStationVersion = 5;
+  state.stationProfiles = Object.fromEntries(['childhood','faith','popculture','lifeskills'].map(key => [key,{...defaultTvProfile,playlistId:key,interests:['Saved topic']} ]));
+  const legacy = ['tv','childhood','faith','popculture','lifeskills'].map(key=>({key,name:key,interests:['Saved topic']}));
+  assert.equal((await POST({ json: async () => ({ action:'save-stations', stations:legacy }) })).status, 200);
+  assert.equal(state.stationProfiles.childhood.playlistId, 'childhood');
+  assert.equal(creates.length, 0);
 });

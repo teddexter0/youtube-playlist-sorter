@@ -17,7 +17,7 @@ Module._load = function(request, parent, ...args) {
   }
   return originalLoad.call(this, request, parent, ...args);
 };
-const { validatePlaylist } = require('../lib/google.ts');
+const { validatePlaylist, findOwnedStationPlaylist, readOptionalPlaylist } = require('../lib/google.ts');
 Module._load = originalLoad;
 const { tvErrorDetails } = require('../lib/tv-error.ts');
 
@@ -55,4 +55,21 @@ test('error reporting never serializes request credentials', () => {
   const error = Object.assign(new Error('Request failed'), { config: { headers: { authorization: 'Bearer secret-token' } } });
   assert.equal(JSON.stringify(tvErrorDetails(error)).includes('secret-token'), false);
   assert.equal(tvErrorDetails(new Error('Bearer secret-token client_secret=private-key')).error.includes('private-key'), false);
+});
+
+test('a deleted source is skipped while YouTube quota errors still stop the run', async () => {
+  const failure = reason => ({ response: { data: { error: { errors: [{ reason }] } } } });
+  let reason = 'playlistNotFound';
+  const youtube = {
+    playlists: { list: async () => ({ data: { items: [{ id: 'tv', snippet: { channelId: 'owner' } }] } }) },
+    channels: { list: async () => ({ data: { items: [{ id: 'owner' }] } }) },
+    playlistItems: { list: async () => { throw failure(reason); } }
+  };
+  const warnings = [];
+  assert.deepEqual(await readOptionalPlaylist(youtube, 'studio', 12, warnings, 'studio archive'), []);
+  assert.match(warnings[0], /studio archive/);
+  assert.equal(await findOwnedStationPlaylist(youtube, 'tv'), null);
+  reason = 'quotaExceeded';
+  await assert.rejects(readOptionalPlaylist(youtube, 'studio', 12, warnings, 'studio archive'));
+  await assert.rejects(findOwnedStationPlaylist(youtube, 'tv'));
 });

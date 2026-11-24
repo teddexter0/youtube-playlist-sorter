@@ -11,6 +11,13 @@ const scenes = [
   { title: "Big ideas. Little rabbit holes.", tag: "THE TOMORROW CHANNEL", image: "", credit: "", type: "orbit" },
   { title: "A whole world beyond your bubble.", tag: "THE WILD CARD CHANNEL", image: "", credit: "", type: "pitch" }
 ];
+const ambientImages = [
+  "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1920&q=80",
+  "https://images.unsplash.com/photo-1519608487953-e999c86e7455?w=1920&q=80",
+  "https://images.pexels.com/videos/11009171/at-the-beach-beach-sunset-beautiful-sunset-bird-flying-11009171.jpeg?auto=compress&w=1920",
+  "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1920&q=80",
+  "https://images.unsplash.com/photo-1470770841072-f978cf4d019e?w=1920&q=80"
+];
 
 export default function BroadcastStage({ connected = false }: { connected?: boolean }) {
   const root = useRef<HTMLElement>(null);
@@ -70,8 +77,11 @@ export default function BroadcastStage({ connected = false }: { connected?: bool
       targetX = (event.clientX - rect.left) / rect.width - .5;
       targetY = (event.clientY - rect.top) / rect.height - .5;
     };
+    let glanceTimer = 0;
     const leave = () => { targetX = 0; targetY = 0; };
-    host.addEventListener("pointermove", pointer); host.addEventListener("pointerleave", leave);
+    const release = (event: PointerEvent) => { if (event.pointerType === "touch") { clearTimeout(glanceTimer); glanceTimer = window.setTimeout(leave, 1100); } };
+    // Touch screens have no hover. Follow a tap or drag, without blocking scrolling.
+    host.addEventListener("pointermove", pointer, { passive: true }); host.addEventListener("pointerdown", pointer, { passive: true }); host.addEventListener("pointerup", release); host.addEventListener("pointerleave", leave);
     const draw = (time: number) => {
       if (visible && !document.hidden) {
         vx = (vx + (targetX - x) * .07) * .8; vy = (vy + (targetY - y) * .07) * .8;
@@ -109,33 +119,34 @@ export default function BroadcastStage({ connected = false }: { connected?: bool
       if (motion) frame = requestAnimationFrame(draw);
     };
     draw(0);
-    return () => { cancelAnimationFrame(frame); resize.disconnect(); observer.disconnect(); host.removeEventListener("pointermove", pointer); host.removeEventListener("pointerleave", leave); };
+    return () => { cancelAnimationFrame(frame); clearTimeout(glanceTimer); resize.disconnect(); observer.disconnect(); host.removeEventListener("pointermove", pointer); host.removeEventListener("pointerdown", pointer); host.removeEventListener("pointerup", release); host.removeEventListener("pointerleave", leave); };
   }, [motion]);
 
   const current = scenes[scene];
-  return <section className={`station-hero ${motion ? "motion-on" : "motion-off"}`} ref={root}>
+  return <><div className={`page-scenery ${motion ? "ambient-motion" : ""}`} aria-hidden="true"><div className="ambient-frame" key={scene} style={{ backgroundImage: `url("${ambientImages[scene]}")` }} /><div className="ambient-wash" /><div className="scanlines" /></div><section className={`station-hero ${motion ? "motion-on" : "motion-off"}`} ref={root}>
     <canvas className="orbit-canvas" aria-hidden="true" ref={canvas} />
     <div className="hero-copy">
       <p className="eyebrow"><span className="broadcast-dot" /> GOOD EVENINGS, BACK ON THE AIR.</p>
       <h1>Less scroll.<br /><span className="hero-round">More <em>oh,</em><br />that&apos;s good.</span></h1>
       <p className="hero-description">A little match day. A little movie magic. Something you didn&apos;t know you&apos;d love. Your own YouTube lineup, without the endless hunt.</p>
-      <div className="hero-actions"><Link className="button playful" href={connected ? "#your-station" : "/api/auth/google/start"}>{connected ? "Make tonight's mix" : "Make yourself at home"}<span aria-hidden="true">↗</span></Link><span className="handwritten">stay curious.</span></div>
+      <p className="cable-manifesto">What if good old cable TV was attuned to your attention span, narrowed interests and time schedules albeit with discovery and being up to date?</p>
+      <div className="hero-actions"><Link className="button playful" href={connected ? "#your-station" : "/api/auth/google/start"}>{connected ? "Make tonight's mix" : "Make yourself at home"}<span aria-hidden="true">?</span></Link><span className="handwritten">stay curious.</span></div>
       <p className="hero-fine">Your account. Your taste. Room for a surprise.</p>
     </div>
     <div className="television-wrap">
       <div className="sticker sticker-top">GOOD STUFF<br />IS STILL ON.</div>
       <div className="television">
         <div className={`scenery scene-${current.type}`} key={scene}>
-          {current.image && !mediaFailed ? <Image src={current.image} fill unoptimized priority={scene === 0} sizes="(max-width: 800px) 90vw, 50vw" alt="" onError={() => setMediaFailed(true)} /> : <div className="vector-scenery" aria-hidden="true"><span className="vector-sun" /><span className="vector-grid" /><span className="vector-orbit" /><span className="vector-star">✦</span></div>}
+          {current.image && !mediaFailed ? <Image src={current.image} fill unoptimized priority={scene === 0} sizes="(max-width: 800px) 90vw, 50vw" alt="" onError={() => setMediaFailed(true)} /> : <div className="vector-scenery" aria-hidden="true"><span className="vector-sun" /><span className="vector-grid" /><span className="vector-orbit" /><span className="vector-star">?</span></div>}
           {current.type === "video" && motion && !mediaFailed ? <video autoPlay loop muted playsInline preload="none" poster={current.image} onError={() => setMediaFailed(true)} src="https://videos.pexels.com/video-files/11009171/11009171-hd_3840_2160_30fps.mp4" aria-hidden="true" /> : null}
           <div className="scene-tint" /><div className="scanlines" />
           <div className="screen-top"><span>PTV / 0{scene + 1}</span><span>YOUR WORLD, WIDER.</span></div>
           <div className="screen-title"><span>{current.tag}</span><h2>{current.title}</h2></div>
         </div>
-        <div className="tv-chin"><span className="checker-logo" aria-label="Personal TV"><b>P</b><b>TV</b></span><div className="scene-dots" aria-label="Scenery slides">{scenes.map((_, i) => <button key={i} aria-label={`Scenery ${i + 1}`} aria-pressed={scene === i} onClick={() => { setScene(i); last.current = i; setMediaFailed(false); }} />)}</div><button className="channel-knob" onClick={nextScene} aria-label="Shuffle scenery">↻</button></div>
+        <div className="tv-chin"><span className="checker-logo" aria-label="Personal TV"><b>P</b><b>TV</b></span><div className="scene-dots" aria-label="Scenery slides">{scenes.map((_, i) => <button key={i} aria-label={`Scenery ${i + 1}`} aria-pressed={scene === i} onClick={() => { setScene(i); last.current = i; setMediaFailed(false); }} />)}</div><button className="channel-knob" onClick={nextScene} aria-label="Shuffle scenery">?</button></div>
       </div>
       <div className="station-buddy" aria-hidden="true"><div className="buddy-eyes"><span><i /></span><span><i /></span></div><span className="buddy-smile" /><span className="buddy-leg left" /><span className="buddy-leg right" /></div>
-      <div className="stage-controls"><button className="text-button" onClick={() => { setMotion(!motion); localStorage.setItem("personal-tv-motion", motion ? "off" : "on"); }}>{motion ? "Ⅱ Pause the motion" : "▶ Turn on the motion"}</button>{current.credit ? <a href={current.credit} target="_blank" rel="noreferrer">Scenery credit ↗</a> : <span>Made of little shapes &amp; curiosity.</span>}</div>
+      <div className="stage-controls"><button className="text-button" onClick={() => { setMotion(!motion); localStorage.setItem("personal-tv-motion", motion ? "off" : "on"); }}>{motion ? "? Pause the motion" : "? Turn on the motion"}</button>{current.credit ? <a href={current.credit} target="_blank" rel="noreferrer">Scenery credit ?</a> : <span>Made of little shapes &amp; curiosity.</span>}</div>
     </div>
-  </section>;
+  </section></>;
 }
