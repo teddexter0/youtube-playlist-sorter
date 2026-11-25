@@ -3,9 +3,11 @@ import type { TvProfile } from "./tv-profile";
 import type { youtube_v3 } from "googleapis";
 import { adminDb } from "./firebase";
 import { getSubscribedChannelIds, readOptionalPlaylist, youtubeForUser } from "./google";
-import { channelLookup, channelSourceKey, lifeSkillsPublishers, popCulturePublishers } from "./channel-sources";
+import { channelLookup, channelSourceKey, lifeSkillsPublishers, popCulturePublishers, tvDiscoveryCreators, tvFavoriteCreators } from "./channel-sources";
 import { isStudioHandle } from "./studio-sources";
 import { previewTitle, tvClipTitle, usTvNetworks } from "./tv-network-sources";
+
+export type CandidateOrigin = { topic: string; discovery: boolean; subscribed?: boolean; officialTrailer?: boolean; officialNetwork?: boolean; officialChannelId?: string; faithPublisher?: boolean };
 
 async function channelUploads(yt: youtube_v3.Youtube, channelId: string, uploads: string | null, label: string, warnings: string[]) {
   if (uploads) {
@@ -24,13 +26,16 @@ async function channelUploads(yt: youtube_v3.Youtube, channelId: string, uploads
   return items;
 }
 
-export async function stationSources(user: UserSettings, profile: TvProfile) {
+export async function stationSources(user: UserSettings, profile: TvProfile, cursor = 0) {
   const yt = youtubeForUser(user);
-  const origins = new Map<string, { topic: string; discovery: boolean; subscribed?: boolean; officialTrailer?: boolean; officialNetwork?: boolean; officialChannelId?: string }>();
+  const origins = new Map<string, CandidateOrigin>();
   const warnings: string[] = [];
   const selectedStudios = new Set((profile.studioHandles ?? []).map(channelSourceKey));
   const networks = new Set(usTvNetworks.map(source => channelSourceKey(source.handle)));
-  const specialist = profile.stationMode === "popculture" ? popCulturePublishers : profile.stationMode === "lifeskills" ? lifeSkillsPublishers : [];
+  const comparableCreators = tvDiscoveryCreators.map((_, i) => tvDiscoveryCreators[(Math.floor(cursor / 2) + i) % tvDiscoveryCreators.length]).slice(0, 5);
+  const specialist = profile.stationMode === "popculture" ? popCulturePublishers : profile.stationMode === "lifeskills" ? lifeSkillsPublishers :
+    profile.strictComfort && profile.mandatoryDaily ? [...tvFavoriteCreators, ...comparableCreators] : [];
+  const newCreators = new Set(comparableCreators.map(channelSourceKey));
   const handles = new Map([...(profile.preferredHandles ?? []), ...(profile.studioHandles ?? []), ...specialist].map(handle => [channelSourceKey(handle), handle]));
   const collect = async ([key, handle]: [string, string]) => {
     const cache = adminDb().collection("publicChannelCache").doc(key);
@@ -48,7 +53,7 @@ export async function stationSources(user: UserSettings, profile: TvProfile) {
       const title = item.snippet?.title ?? "";
       if (id && (!selectedStudio || previewTitle.test(title) || tvClipTitle.test(title))) {
         const official = isStudioHandle(handle);
-        origins.set(id, { topic: cached.title, discovery: false, officialTrailer: official && previewTitle.test(title), officialNetwork: networks.has(key), officialChannelId: official ? cached.id : undefined });
+        origins.set(id, { topic: cached.title, discovery: newCreators.has(key), officialTrailer: official && previewTitle.test(title), officialNetwork: networks.has(key), officialChannelId: official ? cached.id : undefined });
       }
     }
     if (selectedStudios.has(key) && isStudioHandle(handle)) {
@@ -92,18 +97,29 @@ export async function stationSources(user: UserSettings, profile: TvProfile) {
   }
   if (profile.stationMode === "faith") {
     const subscriptions = [...await getSubscribedChannelIds(yt)];
-    for (let i = 0; i < subscriptions.length; i += 50) {
-      const channels = await yt.channels.list({ part: ["snippet", "contentDetails", "topicDetails"], id: subscriptions.slice(i, i + 50) });
-      for (const channel of channels.data.items ?? []) {
-        const meta = `${channel.snippet?.title} ${channel.snippet?.description?.slice(0, 500) ?? ""} ${(channel.topicDetails?.topicCategories ?? []).join(" ")}`;
-        if (!/christian|bible|church|gospel|sermon|ministr|worship|jesus/i.test(meta)) continue;
-        const uploadsId = channel.contentDetails?.relatedPlaylists?.uploads;
-        if (!uploadsId) continue;
-        for (const item of await readOptionalPlaylist(yt, uploadsId, 15, warnings, "a subscribed faith channel’s uploads")) {
+    const groups = Array.from({ length: Math.ceil(subscriptions.length / 50) }, (_, i) => subscriptions.slice(i * 50, i * 50 + 50));
+    const channels = (await Promise.all(groups.map(id => yt.channels.list({ part: ["snippet", "contentDetails", "topicDetails"], id })))).flatMap(result => result.data.items ?? []);
+    const sources = channels.flatMap(channel => {
+      const uploads = channel.contentDetails?.relatedPlaylists?.uploads;
+      if (!uploads) return [];
+      const meta = `${channel.snippet?.title} ${channel.snippet?.description?.slice(0, 800) ?? ""}`;
+      return [{ uploads, faithPublisher: /christian|bible|church|gospel|sermon|ministr|worship|jesus/i.test(meta),
+        religionTopic: channel.topicDetails?.topicCategories?.some(topic => /\/Religion$/i.test(topic)) }];
+    });
+    const matching = sources.filter(source => source.faithPublisher || source.religionTopic);
+    const other = sources.filter(source => !source.faithPublisher && !source.religionTopic);
+    const rotate = <T>(list: T[], limit: number) => Array.from({ length: Math.min(limit, list.length) }, (_, i) => list[(cursor + i) % list.length]);
+    const selected = [...rotate(matching, 28), ...rotate(other, 12)];
+    for (let i = 0; i < selected.length; i += 8) {
+      await Promise.all(selected.slice(i, i + 8).map(async source => {
+        for (const item of await readOptionalPlaylist(yt, source.uploads, 40, warnings, "a subscribed channel's uploads")) {
           const id = item.contentDetails?.videoId;
-          if (id) origins.set(id, { topic: "Your subscribed faith channels", discovery: false, subscribed: true });
+          const text = `${item.snippet?.title ?? ""} ${item.snippet?.description?.slice(0, 300) ?? ""}`;
+          if (id && (source.faithPublisher || source.religionTopic || /\b(sermons?|bible|jesus|christian|gospel|scripture|prayer|church|worship|devotional)\b/i.test(text))) {
+            origins.set(id, { topic: "Your subscribed faith channels", discovery: false, subscribed: true, faithPublisher: source.faithPublisher });
+          }
         }
-      }
+      }));
     }
   }
   return { origins, warnings };

@@ -5,7 +5,7 @@ import { getUserSettings } from "@/lib/store";
 import { adminDb } from "@/lib/firebase";
 import { parsePlaylistId } from "@/lib/playlist";
 import { stationFilterSchema, tvProfileSchema } from "@/lib/tv-profile";
-import { runTvForUser, tvProfileHash } from "@/lib/tv";
+import { runTvForUser, tvProfileHash, tvQueueCapacity } from "@/lib/tv";
 import { defaultTvProfile } from "@/lib/tv-profile";
 import { getVideos, getYouTubeAccountTaste, listOwnPlaylistTitles, uniquePlaylistTitle, findOwnedStationPlaylist, youtubeForUser } from "@/lib/google";
 import crypto from "crypto";
@@ -62,11 +62,11 @@ export async function POST(request: NextRequest) {
     if (body.action === "queue") {
       if (!user.tv?.playlistId) return NextResponse.json({ videos: [] });
       const yt = youtubeForUser(user);
-      const items = await listPlaylistItems(yt, user.tv.playlistId, 40);
+      const items = await listPlaylistItems(yt, user.tv.playlistId, tvQueueCapacity);
       const videos = await getVideos(yt, items.map(item => item.contentDetails?.videoId ?? "").filter(Boolean));
       return NextResponse.json({ videos: videos.filter(v => !["watched", "skip", "block-channel"].includes(user.tvFeedback?.[v.id ?? ""]?.action ?? "")).map(v => ({ videoId: v.id, title: v.snippet?.title ?? "", channelTitle: v.snippet?.channelTitle ?? "", durationSeconds: parseIsoDurationSeconds(v.contentDetails?.duration) })).sort((a,b) => a.durationSeconds-b.durationSeconds) }, { headers: { "cache-control": "private, no-store" } });
     }
-    if (body.action === "run") return NextResponse.json(await runTvForUser(user, body.mode, { manual: body.mode === "live", appendLimit: 40 }));
+    if (body.action === "run") return NextResponse.json(await runTvForUser(user, body.mode, { manual: body.mode === "live", appendLimit: tvQueueCapacity }));
     const ref = adminDb().collection("users").doc(userId);
     if (body.action === "save-weekly-filters") {
       const { station, filters } = body;
@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
         try {
           const current = await getUserSettings(userId);
           if (!current) throw new Error("Reload and reconnect your Google account.");
-          const run = await runTvForUser(current, "live", { manual: true, appendLimit: 40 });
+          const run = await runTvForUser(current, "live", { manual: true, appendLimit: tvQueueCapacity });
           return NextResponse.json({ ...setup, run });
         } catch (error) {
           const details = tvErrorDetails(error);

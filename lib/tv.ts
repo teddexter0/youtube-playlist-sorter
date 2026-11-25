@@ -4,33 +4,39 @@ import { adminDb } from "./firebase";
 import { getSubscribedChannelIds, getYouTubeAccountTaste, getVideos, listPlaylistItems, readOptionalPlaylist, validatePlaylist, youtubeForUser } from "./google";
 import { parseIsoDurationSeconds } from "./playlist";
 import { knownSeenIds, rememberSeen } from "./station-history";
-import { stationSources } from "./station-sources";
+import { stationSources, type CandidateOrigin } from "./station-sources";
 import { orderExistingQueue } from "./playlist-order";
-import { prepareStationRefresh, beginStationRefresh, finishStationRefresh } from "./station-refresh";
+import { prepareStationRefresh, beginStationRefresh, finishStationRefresh, type Replacement } from "./station-refresh";
 import type { StationKey } from "./station-rules";
 import { rankTvCandidates } from "./tv-ai";
 import { selectTvMix, passesMetadataFilter, tvProfileSchema, categoryForVideo, planTvSearches, tvRankingScore, type TvCandidate, type TvProfile, type TvLane } from "./tv-profile";
 import { envValue } from "./runtime-config";
+import { tvErrorDetails } from "./tv-error";
+
+export const tvQueueCapacity = 60;
 
 export function tvProfileHash(profile: TvProfile) {
   const { liveEnabled: _live, ...preferences } = profile;
   return crypto.createHash("sha256").update(JSON.stringify(preferences)).digest("hex");
 }
 
-export type TvRun = { videos: (TvCandidate & { action: string })[]; candidateCount: number; warnings: string[]; mode: "dry-run" | "live"; appended?: { count: number; seconds: number; preserved: number; networks: string[]; previews: number } };
+export type TvRun = { videos: (TvCandidate & { action: string })[]; candidateCount: number; warnings: string[]; mode: "dry-run" | "live"; replacement?: Replacement; appended?: { count: number; seconds: number; preserved: number; networks: string[]; previews: number } };
 
-export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live", options: { manual?: boolean; forceRefresh?: boolean; stationKey?: StationKey; cycleId?: string; appendLimit?: number; appendCycleId?: string; previousAppendSeconds?: number } = {}): Promise<TvRun> {
+export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live", options: { manual?: boolean; forceRefresh?: boolean; stationKey?: StationKey; cycleId?: string; maxItems?: number; appendLimit?: number; appendCycleId?: string; previousAppendSeconds?: number } = {}): Promise<TvRun> {
   const profile = tvProfileSchema.parse(user.tv ?? {});
   if (profile.stationMode === "childhood") {
     if (!profile.franchises.length) throw new Error("Add your childhood show titles before building nostalgia recommendations; generic children's content is not used.");
   }
   const key = options.stationKey ?? "tv";
-  if (!profile.playlistId || (!profile.interests.length && profile.stationMode !== "childhood")) throw new Error("Save a TV playlist and at least one interest first.");
+  if (!profile.playlistId || (!profile.interests.length && profile.stationMode === "tv")) throw new Error("Save a TV playlist and at least one interest first.");
   if (mode === "live" && !options.manual && (!profile.liveEnabled || user.tvPreviewHash !== tvProfileHash(profile))) {
     throw new Error("Preview your saved TV preferences, then enable daily TV before running live.");
   }
   if (Object.entries(user.playlistIds).some(([name, id]) => name !== "tv" && !(key === "faith" && name === "newNj") && id === profile.playlistId) || (key !== "tv" && user.playlistIds.tv === profile.playlistId) || profile.seedPlaylistIds.includes(profile.playlistId)) {
     throw new Error("Use a separate TV playlist, distinct from Inbox, seed and sorted playlists.");
+  }
+  if (Object.entries(user.stationProfiles ?? {}).some(([name, station]) => name !== key && name !== "tv" && station?.playlistId === profile.playlistId)) {
+    throw new Error("Each station needs its own YouTube playlist.");
   }
   const ref = adminDb().collection("users").doc(user.userId);
   const lease = crypto.randomUUID();
@@ -51,10 +57,17 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     }
     const queue = await listPlaylistItems(youtube, profile.playlistId, 500);
     const appendBatch = Boolean(options.appendCycleId);
-    const capacity = appendBatch ? 500 : 40;
+    const capacity = appendBatch ? 500 : tvQueueCapacity;
     const refresh = mode === "live" && options.appendLimit === undefined && !appendBatch ? await prepareStationRefresh(user.userId, key, queue, options.cycleId, Date.now(), options.forceRefresh) : undefined;
     if (refresh?.held) return { videos: [], candidateCount: 0, mode, warnings: [`Keeping your TV queue: ${refresh.gate?.watched} of ${refresh.gate?.total} videos qualify as watched. It can refresh once ${refresh.gate?.required} qualify or the queue is 48 hours old. Native YouTube progress is unavailable.`] };
     const existingItems = refresh?.items ?? queue;
+    if (refresh?.completed) return { videos: [], candidateCount: 0, mode, warnings: [], replacement: refresh.completed };
+    if (refresh?.pending) {
+      await finishStationRefresh(user.userId, key, refresh.token, youtube, refresh.retiring, {
+        playlistId: profile.playlistId, ids: existingItems.flatMap(item => item.contentDetails?.videoId ? [item.contentDetails.videoId] : []), replacement: refresh.pending
+      });
+      return { videos: [], candidateCount: 0, mode, warnings: [], replacement: refresh.pending };
+    }
     if (existingItems.length >= capacity) {
       if (refresh?.started) await finishStationRefresh(user.userId, key, refresh.token, youtube, refresh.retiring);
       if (mode === "dry-run") await ref.update({ tvPreviewHash: tvProfileHash(profile) });
@@ -77,18 +90,18 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     for (const id of accountTaste?.likedVideoIds ?? []) excluded.add(id);
     const blockedChannels = new Set(Object.values(user.tvFeedback ?? {}).filter((f) => f.action === "block-channel").map((f) => f.channelId));
     const warnings: string[] = [];
-    const origins = new Map<string, { topic: string; discovery: boolean; subscribed?: boolean; officialTrailer?: boolean; officialNetwork?: boolean; officialChannelId?: string }>();
+    const origins = new Map<string, CandidateOrigin>();
     const add = (id: string | null | undefined, topic: string, discovery = false, subscribed = false) => { if (id) { if (!origins.has(id)) origins.set(id, { topic, discovery, subscribed }); else if (subscribed) origins.get(id)!.subscribed = true; } };
     // Keep the same eight-call budget while covering twice as many topics.
     const day = Math.floor(Date.now() / 86400000);
     const cursor = key === "tv" ? user.tvSearchCursor ?? 0 : user.stationCursors?.[key] ?? 0;
     const topics = planTvSearches(profile, cursor);
     if (profile.useSubscriptions && accountTaste?.subscriptionTopics?.length && topics.some(topic => topic.discovery)) {
-      const lastDiscovery = topics.map(topic => topic.discovery).lastIndexOf(true);
-      topics[lastDiscovery] = { topic: accountTaste.subscriptionTopics[day % accountTaste.subscriptionTopics.length], discovery: true, archive: false, recentDays: 30 };
+      const lastDiscovery = topics.map((topic, index) => topic.discovery && (!profile.strictComfort || index !== 2)).lastIndexOf(true);
+      if (lastDiscovery >= 0) topics[lastDiscovery] = { topic: accountTaste.subscriptionTopics[day % accountTaste.subscriptionTopics.length], discovery: true, archive: false, recentDays: 30 };
     }
     if (profile.preferredHandles.length || profile.studioHandles.length || profile.publisherSources.length || profile.mandatoryDaily || ["faith", "popculture", "lifeskills"].includes(profile.stationMode)) {
-      const direct = await stationSources(user, profile);
+      const direct = await stationSources(user, profile, cursor);
       direct.origins.forEach((origin, id) => origins.set(id, origin)); warnings.push(...direct.warnings);
     }
     const owner = envValue("PERSONAL_STATION_EMAIL");
@@ -96,14 +109,19 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     const searches = await Promise.all(topics.map(async ({ archive, recentDays, topic, videoDuration }, index) => youtube.search.list({
       part: ["snippet"], type: ["video"], q: topic, maxResults: profile.stationMode === "childhood" ? 10 : 20,
       regionCode: region,
+      ...(profile.stationMode === "lifeskills" ? { relevanceLanguage: "en" } : {}),
       videoDuration,
       safeSearch: profile.sharedTv ? "strict" : "moderate",
       order: profile.stationMode !== "childhood" && !archive && (cursor + index) % 2 === 1 ? "viewCount" : "relevance",
       ...(archive ? { publishedBefore: new Date(Date.now() - 365 * 86400000).toISOString() }
         : { publishedAfter: new Date(Date.now() - recentDays * 86400000).toISOString() })
+    }).catch(error => {
+      if (tvErrorDetails(error).code !== "YOUTUBE_QUOTA" || !origins.size) throw error;
+      return null;
     })));
+    if (searches.some(result => !result)) warnings.push("YouTube search quota ran out. This mix includes picks from available channels.");
     searches.forEach((result, i) => {
-      for (const item of result.data.items ?? []) add(item.id?.videoId, topics[i].topic, topics[i].discovery);
+      for (const item of result?.data.items ?? []) add(item.id?.videoId, topics[i].topic, topics[i].discovery);
     });
     for (const id of profile.seedPlaylistIds) {
       try {
@@ -143,6 +161,8 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
         topic: origins.get(video.id)?.topic ?? "Discovery", publishedAt: video.snippet.publishedAt ?? "",
         discovery: origins.get(video.id)?.discovery ?? false,
         subscribed: origins.get(video.id)?.subscribed ?? false,
+        faithPublisher: origin?.faithPublisher,
+        audioLanguage: video.snippet.defaultAudioLanguage ?? video.snippet.defaultLanguage ?? undefined,
         officialTrailer: official && Boolean(origin?.officialTrailer),
         officialNetwork: official && Boolean(origin?.officialNetwork),
         matureRating: ["mpaaR", "mpaaNc17", "mpaaX"].includes(rating?.mpaaRating ?? "") || ["tvpgMa", "tvpg14"].includes(rating?.tvpgRating ?? ""),
@@ -176,22 +196,28 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     const categoryCounts = new Map<TvLane, number>();
     const channelCounts = new Map<string, number>();
     const queuedVideos = await getVideos(youtube, [...new Set(priorBatchItems.flatMap(item => item.contentDetails?.videoId ? [item.contentDetails.videoId] : []))]);
-    for (const queued of queuedVideos) {
-      const lane = categoryForVideo({ videoId: queued.id ?? "", title: queued.snippet?.title ?? "", channelTitle: queued.snippet?.channelTitle ?? "", channelId: queued.snippet?.channelId ?? "", description: queued.snippet?.description ?? "", topic: "Existing queue", durationSeconds: 0, publishedAt: "", score: 0, reason: "" });
+    const queuedCandidates: TvCandidate[] = queuedVideos.map(video => ({
+      videoId: video.id ?? "", title: video.snippet?.title ?? "", channelTitle: video.snippet?.channelTitle ?? "",
+      channelId: video.snippet?.channelId ?? "", description: video.snippet?.description ?? "", topic: "Existing queue",
+      durationSeconds: parseIsoDurationSeconds(video.contentDetails?.duration), publishedAt: "", score: 0, reason: ""
+    }));
+    for (const queued of queuedCandidates) {
+      const lane = categoryForVideo(queued);
       categoryCounts.set(lane, (categoryCounts.get(lane) ?? 0) + 1);
-      const channelId = queued.snippet?.channelId ?? "";
-      channelCounts.set(channelId, (channelCounts.get(channelId) ?? 0) + 1);
+      channelCounts.set(queued.channelId, (channelCounts.get(queued.channelId) ?? 0) + 1);
     }
     const recent = (user.tvRecent ?? []).filter((v) => Date.parse(v.at) > Date.now() - 31 * 86400000);
     const deliveredSeconds = appendBatch || refresh?.started ? queuedVideos.reduce((total, video) => total + parseIsoDurationSeconds(video.contentDetails?.duration), 0) : 0;
-    let videos = selectTvMix(candidates, profile, excluded, Date.now(), { categoryCounts, channelCounts, deliveredSeconds, previousAppendSeconds: options.previousAppendSeconds,
-      maxItems: Math.max(0, Math.min((options.appendLimit ?? 40) - ((appendBatch || refresh?.started) ? priorBatchItems.length : 0), capacity - existingItems.length)),
+    let videos = selectTvMix(candidates, profile, excluded, Date.now(), { categoryCounts, channelCounts, queued: queuedCandidates, deliveredSeconds, previousAppendSeconds: options.previousAppendSeconds,
+      maxItems: Math.max(0, Math.min((options.appendLimit ?? options.maxItems ?? tvQueueCapacity) - ((appendBatch || refresh?.started) ? priorBatchItems.length : 0), capacity - existingItems.length)),
+      balanceRuntime: options.maxItems !== undefined,
       recentLanes: recent.filter((v) => Date.parse(v.at) > Date.now() - 3 * 86400000).map((v) => v.category),
       monthlyMotorsportSeen: recent.some((v) => v.category === "motorsport")
       , classicFootballSeen: recent.some(v => v.classicFootball)
     });
-    const orderQueue = profile.durationOrder && !(profile.strictComfort && key === "tv") && !appendBatch;
-    if (profile.durationOrder && (orderQueue || (appendBatch && key !== "tv"))) videos = videos.sort((a, b) => a.durationSeconds - b.durationSeconds);
+    const orderByDuration = profile.durationOrder && !(profile.strictComfort && key === "tv");
+    let orderQueue = orderByDuration && !appendBatch && !refresh?.token;
+    if (orderByDuration) videos = videos.sort((a, b) => a.durationSeconds - b.durationSeconds);
     if (profile.mandatoryDaily) for (const lane of ["trailers", "football"] as const) {
       if (!videos.some(v => categoryForVideo(v) === lane) && !(categoryCounts.get(lane) ?? 0)) warnings.push(`No suitable unseen ${lane} could be added today. Freshness, source checks, time limits and topic caps still apply.`);
     }
@@ -201,12 +227,25 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
       : "No new picks fit this mix. Check your topics, seen videos and duration limits.");
     const results: TvRun["videos"] = [];
     if (refresh?.token && !refresh.started && videos.length) await beginStationRefresh(user.userId, key, refresh.token, refresh.retiring);
-    const queuedDurations = mode === "live" && orderQueue ? await orderExistingQueue(youtube, profile.playlistId, existingItems, queuedVideos) : [];
+    let queuedDurations: number[] = [];
+    if (mode === "live" && orderQueue) {
+      try { queuedDurations = await orderExistingQueue(youtube, profile.playlistId, existingItems, queuedVideos); }
+      catch (error) {
+        if (tvErrorDetails(error).code !== "MANUAL_SORT_REQUIRED") throw error;
+        orderQueue = false;
+      }
+    }
     for (const video of videos) {
       if (mode === "live") {
-        await youtube.playlistItems.insert({ part: ["snippet"], requestBody: { snippet: {
+        const insert = () => youtube.playlistItems.insert({ part: ["snippet"], requestBody: { snippet: {
           playlistId: profile.playlistId, ...(orderQueue ? { position: queuedDurations.filter(seconds => seconds <= video.durationSeconds).length } : {}), resourceId: { kind: "youtube#video", videoId: video.videoId }
         } } });
+        try { await insert(); }
+        catch (error) {
+          if (!orderQueue || tvErrorDetails(error).code !== "MANUAL_SORT_REQUIRED") throw error;
+          orderQueue = false;
+          await insert();
+        }
         if (orderQueue) queuedDurations.push(video.durationSeconds);
         await rememberSeen(user.userId, [video.videoId], "delivered");
         // Record each successful insertion so a partially failed run can resume safely.
@@ -219,9 +258,12 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
       results.push({ ...video, action: mode === "live" ? "Added to TV" : "Would add to TV" });
     }
     if (key === "tv" && (mode === "dry-run" || (options.manual && videos.length))) await ref.update({ tvPreviewHash: tvProfileHash(profile) });
-    if (mode === "live") await ref.update({ [key === "tv" ? "tvSearchCursor" : `stationCursors.${key}`]: cursor + topics.filter((topic) => !topic.discovery).length });
+    if (mode === "live") await ref.update({ [key === "tv" ? "tvSearchCursor" : `stationCursors.${key}`]: cursor + (key === "faith" ? 5 : Math.max(1, topics.filter((topic) => !topic.discovery).length)) });
+    let replacement: TvRun["replacement"];
     if (refresh?.token && (videos.length || (refresh.started && existingItems.length))) {
-      await finishStationRefresh(user.userId, key, refresh.token, youtube, refresh.retiring);
+      const finished = [...queuedCandidates, ...videos];
+      replacement = { count: finished.length, seconds: finished.reduce((sum, video) => sum + video.durationSeconds, 0), highlights: finished.slice(0, 3).map(video => video.title) };
+      await finishStationRefresh(user.userId, key, refresh.token, youtube, refresh.retiring, { playlistId: profile.playlistId, ids: finished.map(video => video.videoId), replacement });
     }
     let appended: TvRun["appended"];
     if (appendBatch) {
@@ -238,7 +280,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
         networks: [...new Set(videos.filter(video => video.officialNetwork).map(video => video.channelTitle))], previews: videos.filter(video => video.officialTrailer).length };
     }
     await ref.collection("logs").add({ userId: user.userId, level: "info", message: `${mode} TV run: ${results.length} selections`, createdAt: new Date().toISOString() });
-    return { videos: results, candidateCount: candidates.length, warnings, mode, appended };
+    return { videos: results, candidateCount: candidates.length, warnings, mode, appended, replacement };
   } finally {
     await adminDb().runTransaction(async (tx) => {
       const snap = await tx.get(ref);

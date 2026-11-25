@@ -35,7 +35,7 @@ Module._load = function(request, parent, ...args) {
       '@/lib/station-rules': require('../lib/station-rules.ts'),
       '@/lib/publishers': { searchPublishers: async () => [], publisherFromChannel: channel => ({channelId:channel.id,title:channel.snippet?.title??''}) },
       '@/lib/tv-error': require('../lib/tv-error.ts'),
-      '@/lib/tv': { tvProfileHash: () => 'profile-hash', runTvForUser: async (user, mode, options) => {
+      '@/lib/tv': { tvQueueCapacity: 60, tvProfileHash: () => 'profile-hash', runTvForUser: async (user, mode, options) => {
         assert.equal(state.tvLockUntil, 0, 'setup releases the lease before filling');
         runs.push({ user, mode, options });
         if (runFails) throw new Error('YouTube quota exceeded');
@@ -113,7 +113,7 @@ test('build creates and fills in one action while keeping daily updates off', as
   assert.equal(result.body.run.videos.length, 1);
   assert.equal(runs[0].user.tv.playlistId, 'private-tv');
   assert.deepEqual(runs[0].user.tv.interests, ['My saved topic']);
-  assert.deepEqual(runs[0].options, { manual: true, appendLimit: 40 });
+  assert.deepEqual(runs[0].options, { manual: true, appendLimit: 60 });
   assert.equal(state.tv.liveEnabled, false);
   assert.equal(creates.length, 1);
 });
@@ -160,7 +160,7 @@ test('manual top-up bypasses replacement and preserves the daily schedule and so
   assert.equal(result.body.profile.liveEnabled, true);
   assert.equal(result.body.profile.useSubscriptions, false);
   assert.equal(state.stationAutopilot, true);
-  assert.equal(runs[0].options.appendLimit, 40);
+  assert.equal(runs[0].options.appendLimit, 60);
   assert.equal(runs[0].options.forceRefresh, undefined);
 });
 

@@ -49,6 +49,20 @@ test('a recurring channel cannot exceed the limit through repeated top-ups', () 
   assert.deepEqual(mix.map(v => v.videoId), ['b']);
 });
 
+test('comfort TV has one Kenyan news slot across fresh picks and existing queue entries', () => {
+  const p = { ...defaultTvProfile, strictComfort: true };
+  const news = [
+    video('ntv', { channelId: 'UCqBJ47FjJcl61fmSbcadAVg', title: 'Morning bulletin', durationSeconds: 260 }),
+    video('ruto', { title: 'Kenya government press conference', durationSeconds: 300 }),
+    video('kbc', { channelTitle: 'KBC Channel 1', title: 'Top stories', durationSeconds: 330 })
+  ];
+  const creator = video('cleo', { channelId: 'UC415bOPUcGSamy543abLmRA', title: 'How this robot works', durationSeconds: 1200 });
+  const mix = selectTvMix([...news, creator], p, new Set(), now);
+  assert.equal(mix.filter(v => categoryForVideo(v) === 'news').length, 1);
+  assert.ok(mix.some(v => v.videoId === 'cleo'));
+  assert.deepEqual(selectTvMix([...news.slice(1), creator], p, new Set(), now, { queued: [news[0]] }).map(v => v.videoId), ['cleo']);
+});
+
 test('wide preset survives validation and discovery visits every interest without more than eight calls', () => {
   const { tvProfileSchema, exampleInterests, planTvSearches } = require('../lib/tv-profile.ts');
   const profile = tvProfileSchema.parse({ interests: exampleInterests });

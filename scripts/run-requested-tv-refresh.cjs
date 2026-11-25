@@ -64,6 +64,30 @@ async function run() {
     await enableStations(user, true);
     user = (await ref.get()).data();
   }
+  if (process.argv[3] === "replace-lineup") {
+    const { listPlaylistItems, youtubeForUser } = require("../lib/google.ts");
+    const yt = youtubeForUser(user);
+    const keys = activeStationKeys(user);
+    const previous = await Promise.all(keys.map(async station => {
+      const slot = ["childhood", "popculture", "lifeskills"].includes(station) ? "morning" : "evening";
+      const claim = await ref.collection("stationRuns").doc(`${today}--${slot}--${station}`).get();
+      const profile = station === "tv" ? user.tv : user.stationProfiles?.[station];
+      const count = profile?.playlistId ? (await listPlaylistItems(yt, profile.playlistId, 500).catch(() => [])).length : 0;
+      return { station, count, scheduled: claim.data()?.complete ?? null, issue: claim.data()?.error ?? null };
+    }));
+    console.log("Previous lineup:", JSON.stringify(previous));
+    const results = await runStations(user, "evening", now, { trigger: "kickoff", replaceToday: true });
+    const current = (await ref.get()).data();
+    const status = await Promise.all(keys.map(async station => {
+      const slot = ["childhood", "popculture", "lifeskills"].includes(station) ? "morning" : "evening";
+      const marker = (await ref.collection("stationRuns").doc(`${today}--${slot}--${station}--replacement`).get()).data();
+      const profile = station === "tv" ? current.tv : current.stationProfiles?.[station];
+      return { station, targetMinutes: profile?.sessionMinutes, complete: marker?.complete === true,
+        replacement: marker?.replacement, code: results.find(result => result.station === station)?.code, error: marker?.error };
+    }));
+    console.log("Requested replacement lineup:", JSON.stringify({ automatic: current.stationAutopilot, runs: status }));
+    return;
+  }
   if (process.argv[3] === "all-stations") {
     const results = await runStations(user, "evening", now, { trigger: "kickoff" });
     const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Nairobi", year: "numeric", month: "2-digit", day: "2-digit" }).format(now).replaceAll("/", "-");

@@ -45,10 +45,20 @@ test('pop culture searches for evergreen features and keeps stale news out', () 
   const searches = planTvSearches(profile, 3);
   assert.equal(searches.length, 8);
   assert.ok(searches.some(query => query.recentDays === 14));
-  assert.ok(searches.some(query => query.videoDuration === 'long' && query.recentDays === 120));
-  const feature = video('Cast interview about making a movie', { publishedAt: '2026-09-15', durationSeconds: 1500 });
+  assert.ok(searches.some(query => query.videoDuration === 'long' && query.recentDays === 365));
+  const feature = video('Cast interview about making a movie', { publishedAt: '2026-03-15', durationSeconds: 1500 });
   assert.equal(passesMetadataFilter(feature, profile, now), true);
   assert.equal(passesMetadataFilter({ ...feature, title: 'Breaking news: cast interview this week' }, profile, now), false);
+});
+
+test('life skills prioritizes practical sleep science and screens self-help by topic', () => {
+  const profile = tvProfileSchema.parse({ stationMode: 'lifeskills', lightViewing: false, maxVideoMinutes: 90 });
+  const sleep = video('Sleep Is Your Superpower', { channelId: 'UCAuUUnT6oDeKwE6v1NGQxug', durationSeconds: 1150 });
+  assert.equal(passesMetadataFilter(sleep, profile, now), true);
+  assert.equal(passesMetadataFilter({ ...sleep, audioLanguage: 'hi-IN' }, profile, now), false);
+  for (const title of ['Yoga for better sleep', 'Manifest your perfect sleep', 'Therapy for healthy sleep', 'Robert Greene on sleep', 'Prayer for insomnia']) {
+    assert.equal(passesMetadataFilter({ ...sleep, title }, profile, now), false, title);
+  }
 });
 
 test('no-Shorts rule rejects the entire ambiguous range including three-minute unlabelled videos', () => {

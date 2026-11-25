@@ -175,9 +175,10 @@ test('AI failure does not silently bypass filtering or add videos', async () => 
 });
 
 test('full queues stop before discovery and blocked channels stay out', async () => {
-  reset(); inserted = Array.from({ length: 40 }, (_, i) => `old${i}`);
+  const { tvQueueCapacity } = require('../lib/tv.ts');
+  reset(); inserted = Array.from({ length: tvQueueCapacity }, (_, i) => `old${i}`);
   const full = await runTvForUser(state, 'live');
-  assert.equal(full.candidateCount, 0); assert.equal(inserted.length, 40);
+  assert.equal(full.candidateCount, 0); assert.equal(inserted.length, tvQueueCapacity);
   reset(); state.tvFeedback = { anotherVideo: { action: 'block-channel', channelId: 'newvideo001' } };
   const run = await runTvForUser(state, 'live');
   assert.deepEqual(run.videos.map(v => v.videoId), ['newvideo002']);

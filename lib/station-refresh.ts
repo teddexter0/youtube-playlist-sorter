@@ -5,6 +5,7 @@ import type { StationKey } from "./station-rules";
 import { rememberSeen } from "./station-history";
 export type Playback = { seconds?: number; completed?: boolean };
 type Queue = Awaited<ReturnType<typeof listPlaylistItems>>;
+export type Replacement = { count: number; seconds: number; highlights: string[] };
 const maxTvQueueAge = 48 * 60 * 60000;
 export function tvWatchGate(ids: string[], playback: Map<string, Playback>) {
   const unique = [...new Set(ids.filter(Boolean))];
@@ -29,12 +30,12 @@ export async function prepareStationRefresh(userId: string, key: StationKey, ite
   const marker = userRef.collection("stationRefresh").doc(key);
   const previous = (await marker.get()).data();
   const token = cycleId ?? crypto.randomUUID();
-  if (previous?.phase === "filling") {
+  if (previous && ["filling", "retiring"].includes(previous.phase) && (!cycleId?.endsWith("--replacement") || previous.cycleId === token)) {
     const retiring = items.filter(item => previous.retiring?.includes(item.id));
-    return { items: items.filter(item => !retiring.includes(item)), held: false, token: previous.cycleId as string, retiring, started: true };
+    return { items: items.filter(item => !retiring.includes(item)), held: false, token: previous.cycleId as string, retiring, started: true, pending: previous.replacement as Replacement | undefined };
   }
   if ((previous?.phase === "complete" && previous.cycleId === token) || (key !== "tv" && !cycleId)) {
-    return { items, held: false, token: "", retiring: [], started: false };
+    return { items, held: false, token: "", retiring: [], started: false, completed: previous?.cycleId === token ? previous?.replacement as Replacement | undefined : undefined };
   }
   const lastFilledAt = Math.max(previous?.at ?? 0, ...items.map(item => Date.parse(item.snippet?.publishedAt ?? "") || 0));
   const stale = lastFilledAt > 0 && now - lastFilledAt >= maxTvQueueAge;
@@ -55,7 +56,9 @@ export async function beginStationRefresh(userId: string, key: StationKey, token
   const ref = adminDb().collection("users").doc(userId).collection("stationRefresh").doc(key);
   await ref.set({ cycleId: token, phase: "filling", at: Date.now(), retiring: retiring.flatMap(item => item.id ? [item.id] : []) });
 }
-export async function finishStationRefresh(userId: string, key: StationKey, token: string, yt: ReturnType<typeof youtubeForUser>, retiring: Queue) {
+export async function finishStationRefresh(userId: string, key: StationKey, token: string, yt: ReturnType<typeof youtubeForUser>, retiring: Queue, confirmation?: { playlistId: string; ids: string[]; replacement: Replacement }) {
+  const ref = adminDb().collection("users").doc(userId).collection("stationRefresh").doc(key);
+  if (confirmation) await ref.set({ phase: "retiring", replacement: confirmation.replacement }, { merge: true });
   // Retire the prior entries only after the replacement has reached YouTube.
   for (const item of retiring) {
     if (!item.id) continue;
@@ -65,8 +68,14 @@ export async function finishStationRefresh(userId: string, key: StationKey, toke
       if (status !== 404) throw error;
     }
   }
-  const ref = adminDb().collection("users").doc(userId).collection("stationRefresh").doc(key);
+  if (confirmation) {
+    const snapshot = await listPlaylistItems(yt, confirmation.playlistId, 500);
+    const actual = new Set(snapshot.map(item => item.contentDetails?.videoId));
+    if (snapshot.length !== confirmation.ids.length || confirmation.ids.some(id => !actual.has(id))) {
+      throw new Error("YouTube has not confirmed the replacement queue yet.");
+    }
+  }
   await adminDb().runTransaction(async tx => {
-    if ((await tx.get(ref)).data()?.cycleId === token) tx.set(ref, { cycleId: token, phase: "complete", at: Date.now() });
+    if ((await tx.get(ref)).data()?.cycleId === token) tx.set(ref, { cycleId: token, phase: "complete", at: Date.now(), ...(confirmation ? { replacement: confirmation.replacement } : {}) });
   });
 }

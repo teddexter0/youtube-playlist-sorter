@@ -53,6 +53,7 @@ export type UserSettings = {
   stationAutopilot?: boolean;
   enabledStations?: import("./station-rules").StationKey[];
   personalStationVersion?: number;
+  personalLineupDurationRaised?: boolean;
   tvLineupAppendStations?: import("./station-rules").StationKey[];
   stationCursors?: Partial<Record<import("./station-rules").StationKey, number>>;
   tvHistory?: string[];

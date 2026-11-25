@@ -79,7 +79,7 @@ test('saved aliases resolve by channel ID and blocked uploads fall back to the s
 test('faith reads subscribed religious channel uploads and excludes unrelated subscriptions',async()=>{
  uploadCalls.length=0;
  const result=await stationSources({userId:'alice'},tvProfileSchema.parse({stationMode:'faith'}));
- assert.deepEqual(uploadCalls,['UL-faith']);
+ assert.deepEqual(uploadCalls,['UL-faith','UL-news']);
  assert.equal([...result.origins.values()][0].subscribed,true);
  assert.ok(!result.origins.has('VIDEO-UL-news'));
 });
