@@ -64,7 +64,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     if (refresh?.completed) return { videos: [], candidateCount: 0, mode, warnings: [], replacement: refresh.completed };
     if (refresh?.pending) {
       await finishStationRefresh(user.userId, key, refresh.token, youtube, refresh.retiring, {
-        playlistId: profile.playlistId, ids: existingItems.flatMap(item => item.contentDetails?.videoId ? [item.contentDetails.videoId] : []), replacement: refresh.pending
+        playlistId: profile.playlistId, ids: refresh.expected ?? [], replacement: refresh.pending
       });
       return { videos: [], candidateCount: 0, mode, warnings: [], replacement: refresh.pending };
     }

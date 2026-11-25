@@ -60,6 +60,26 @@ async function run() {
     }
     return;
   }
+  if (process.argv[3] === "inspect-lineup") {
+    const { listPlaylistItems, getVideos, youtubeForUser } = require("../lib/google.ts");
+    const { parseIsoDurationSeconds } = require("../lib/playlist.ts");
+    const yt = youtubeForUser(user);
+    const status = await Promise.all(activeStationKeys(user).map(async station => {
+      const profile = station === "tv" ? user.tv : user.stationProfiles?.[station];
+      const marker = (await ref.collection("stationRefresh").doc(station).get()).data();
+      const queue = profile?.playlistId ? await listPlaylistItems(yt, profile.playlistId, 500, true) : [];
+      const old = new Set(marker?.retiring ?? []);
+      const videos = await getVideos(yt, queue.flatMap(item => {
+        const id = item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId;
+        return id ? [id] : [];
+      }));
+      return { station, count: queue.length, oldEntries: queue.filter(item => old.has(item.id)).length, phase: marker?.phase,
+        targetMinutes: profile?.sessionMinutes, seconds: videos.reduce((sum, v) => sum + parseIsoDurationSeconds(v.contentDetails?.duration), 0),
+        highlights: queue.slice(0, 4).map(item => [item.snippet?.title, item.snippet?.videoOwnerChannelTitle]) };
+    }));
+    console.log("Verified lineup:", JSON.stringify({ automatic: user.stationAutopilot, runs: status }));
+    return;
+  }
   if (!user.stationAutopilot) {
     await enableStations(user, true);
     user = (await ref.get()).data();

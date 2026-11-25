@@ -6,6 +6,25 @@ import { rememberSeen } from "./station-history";
 export type Playback = { seconds?: number; completed?: boolean };
 type Queue = Awaited<ReturnType<typeof listPlaylistItems>>;
 export type Replacement = { count: number; seconds: number; highlights: string[] };
+const videoIds = (items: Queue) => items.flatMap(item => {
+  const id = item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId;
+  return id ? [id] : [];
+});
+
+async function confirmQueue(yt: ReturnType<typeof youtubeForUser>, playlistId: string, expected: string[], retiring: Queue, count: number, exact: boolean) {
+  const oldIds = new Set(retiring.map(item => item.id));
+  let detail = "";
+  for (const delay of [0, 1500, 4000]) {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    const snapshot = await listPlaylistItems(yt, playlistId, 500, true);
+    const visible = new Set(videoIds(snapshot.filter(item => !oldIds.has(item.id))));
+    const missing = expected.filter(id => !visible.has(id)).length;
+    const remaining = snapshot.filter(item => oldIds.has(item.id)).length;
+    if (!missing && visible.size === count && (!exact || (remaining === 0 && snapshot.length === count))) return;
+    detail = `expected ${count}, visible ${visible.size}, missing ${missing}, old entries ${remaining}`;
+  }
+  throw new Error(`YouTube has not confirmed the replacement queue yet (${detail}).`);
+}
 const maxTvQueueAge = 48 * 60 * 60000;
 export function tvWatchGate(ids: string[], playback: Map<string, Playback>) {
   const unique = [...new Set(ids.filter(Boolean))];
@@ -32,7 +51,7 @@ export async function prepareStationRefresh(userId: string, key: StationKey, ite
   const token = cycleId ?? crypto.randomUUID();
   if (previous && ["filling", "retiring"].includes(previous.phase) && (!cycleId?.endsWith("--replacement") || previous.cycleId === token)) {
     const retiring = items.filter(item => previous.retiring?.includes(item.id));
-    return { items: items.filter(item => !retiring.includes(item)), held: false, token: previous.cycleId as string, retiring, started: true, pending: previous.replacement as Replacement | undefined };
+    return { items: items.filter(item => !retiring.includes(item)), held: false, token: previous.cycleId as string, retiring, started: true, pending: previous.replacement as Replacement | undefined, expected: previous.replacementIds as string[] | undefined };
   }
   if ((previous?.phase === "complete" && previous.cycleId === token) || (key !== "tv" && !cycleId)) {
     return { items, held: false, token: "", retiring: [], started: false, completed: previous?.cycleId === token ? previous?.replacement as Replacement | undefined : undefined };
@@ -58,7 +77,10 @@ export async function beginStationRefresh(userId: string, key: StationKey, token
 }
 export async function finishStationRefresh(userId: string, key: StationKey, token: string, yt: ReturnType<typeof youtubeForUser>, retiring: Queue, confirmation?: { playlistId: string; ids: string[]; replacement: Replacement }) {
   const ref = adminDb().collection("users").doc(userId).collection("stationRefresh").doc(key);
-  if (confirmation) await ref.set({ phase: "retiring", replacement: confirmation.replacement }, { merge: true });
+  if (confirmation) {
+    await confirmQueue(yt, confirmation.playlistId, confirmation.ids, retiring, confirmation.replacement.count, false);
+    await ref.set({ phase: "retiring", replacement: confirmation.replacement, replacementIds: confirmation.ids }, { merge: true });
+  }
   // Retire the prior entries only after the replacement has reached YouTube.
   for (const item of retiring) {
     if (!item.id) continue;
@@ -68,13 +90,7 @@ export async function finishStationRefresh(userId: string, key: StationKey, toke
       if (status !== 404) throw error;
     }
   }
-  if (confirmation) {
-    const snapshot = await listPlaylistItems(yt, confirmation.playlistId, 500);
-    const actual = new Set(snapshot.map(item => item.contentDetails?.videoId));
-    if (snapshot.length !== confirmation.ids.length || confirmation.ids.some(id => !actual.has(id))) {
-      throw new Error("YouTube has not confirmed the replacement queue yet.");
-    }
-  }
+  if (confirmation) await confirmQueue(yt, confirmation.playlistId, confirmation.ids, retiring, confirmation.replacement.count, true);
   await adminDb().runTransaction(async tx => {
     if ((await tx.get(ref)).data()?.cycleId === token) tx.set(ref, { cycleId: token, phase: "complete", at: Date.now(), ...(confirmation ? { replacement: confirmation.replacement } : {}) });
   });

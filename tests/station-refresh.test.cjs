@@ -8,7 +8,7 @@ const original=Module._load;
 Module._load=function(request,parent,...rest){
  if(parent?.filename===path.resolve(__dirname,'../lib/station-refresh.ts')){
   if(request==='./firebase')return{adminDb:()=>db};
-  if(request==='./google')return{};
+  if(request==='./google')return{listPlaylistItems:async yt=>yt.readQueue()};
   if(request==='./station-history')return{rememberSeen:async(user,ids,source)=>ids.forEach(id=>data.set('users/'+user+'/watched/'+id,{source}))};
  }
  return original.call(this,request,parent,...rest);
@@ -125,4 +125,22 @@ test('imported history, skips and delivery records cannot prove two minutes of w
  data.set('users/alice/watched/video2',{source:'watch-history-import'});
  const first=await prepareStationRefresh('alice','tv',items,'day1');
  assert.equal(first.gate.watched,0);assert.equal(first.held,true);
+});
+
+test('replacements are confirmed before old entries are retired and verification tolerates missing contentDetails', async () => {
+ data.clear();
+ const queue = [...items, {id:'newItem',snippet:{resourceId:{videoId:'newVideo'}}}];
+ await beginStationRefresh('alice','tv','day1',items);
+ const marker = {count:1,seconds:360,highlights:['New video']};
+ let read = false;
+ const yt = {
+  readQueue: async () => {read = true;return [...queue];},
+  playlistItems: {delete: async ({id}) => {
+   assert.equal(read,true);
+   queue.splice(queue.findIndex(item=>item.id===id),1);
+  }}
+ };
+ await finishStationRefresh('alice','tv','day1',yt,items,{playlistId:'TV',ids:['newVideo'],replacement:marker});
+ assert.deepEqual(queue.map(item=>item.id),['newItem']);
+ assert.deepEqual((await prepareStationRefresh('alice','tv',queue,'day1')).completed,marker);
 });

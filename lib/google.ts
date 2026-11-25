@@ -59,7 +59,8 @@ export function youtubeForUser(user: UserSettings & { encryptedRefreshToken?: st
 export async function listPlaylistItems(
   youtube: youtube_v3.Youtube,
   playlistId: string,
-  maxItems = 200
+  maxItems = 200,
+  fresh = false
 ) {
   const items: youtube_v3.Schema$PlaylistItem[] = [];
   let pageToken: string | undefined;
@@ -70,7 +71,7 @@ export async function listPlaylistItems(
       playlistId,
       maxResults: 50,
       pageToken
-    });
+    }, fresh ? { headers: { "cache-control": "no-cache, no-store" } } : {});
     items.push(...(res.data.items ?? []));
     pageToken = res.data.nextPageToken ?? undefined;
   } while (pageToken && items.length < maxItems);

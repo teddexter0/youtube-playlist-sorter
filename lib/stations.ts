@@ -111,7 +111,7 @@ async function ensurePlaylist(user: UserSettings, key: StationKey) {
   }
   return profile;
 }
-export async function runStations(user: UserSettings, slot: "evening" | "morning", now = new Date(), options: { trigger?: "scheduled" | "kickoff"; onlyTv?: boolean; replaceToday?: boolean; lineupUpgrade?: boolean; lineupRetry?: true | "popculture" } = {}) {
+export async function runStations(user: UserSettings, slot: "evening" | "morning", now = new Date(), options: { trigger?: "scheduled" | "kickoff"; onlyTv?: boolean; replaceToday?: boolean; retryMorning?: boolean; lineupUpgrade?: boolean; lineupRetry?: true | "popculture" } = {}) {
   if (user.storageMigrating) return [];
   const legacyAppend = options.lineupUpgrade || options.lineupRetry;
   user = legacyAppend ? await upgradePersonalLineup(user) : await raisePersonalLineupDuration(user);
@@ -142,6 +142,8 @@ export async function runStations(user: UserSettings, slot: "evening" | "morning
     const dateKey = nairobiDate.format(date).replaceAll("/", "-");
     const normalClaim = ref.collection("stationRuns").doc(`${dateKey}--${job.slot}--${key}`);
     const replacementClaim = ref.collection("stationRuns").doc(normalClaim.id + "--replacement");
+    const retryingReplacement = personalDaily && !legacyAppend && !options.replaceToday && (await replacementClaim.get()).exists;
+    if (options.retryMorning && job.slot === "evening" && !retryingReplacement) continue;
     const upgrade = ref.collection("stationRuns").doc(`tv-lineup-v1--${key}`);
     const eligibleForUpgrade = legacyAppend && user.tvLineupAppendStations?.includes(key);
     const priorUpgrade = eligibleForUpgrade ? (await upgrade.get()).data() : undefined;
@@ -156,11 +158,11 @@ export async function runStations(user: UserSettings, slot: "evening" | "morning
     if (!retry && priorUpgrade?.complete && priorUpgrade.dateKey === dateKey) continue;
     const appendUpgrade = retry || (eligibleForUpgrade && !priorUpgrade?.complete);
     const suffix = job.daily && trigger === "kickoff" && !personalDaily ? `--kickoff--${options.onlyTv ? "requested" : process.env.VERCEL_DEPLOYMENT_ID ?? "current"}` : "";
-    const claim = options.replaceToday ? replacementClaim : retry ? ref.collection("stationRuns").doc(upgrade.id + (popCultureFill ? "--popculture-fill" : "--retry")) : appendUpgrade ? upgrade : suffix ? ref.collection("stationRuns").doc(normalClaim.id + suffix) : normalClaim;
+    const claim = options.replaceToday || retryingReplacement ? replacementClaim : retry ? ref.collection("stationRuns").doc(upgrade.id + (popCultureFill ? "--popculture-fill" : "--retry")) : appendUpgrade ? upgrade : suffix ? ref.collection("stationRuns").doc(normalClaim.id + suffix) : normalClaim;
     const lease = crypto.randomUUID();
     const claimed = await adminDb().runTransaction(async tx => {
       const prior = (await tx.get(claim)).data();
-      if (!options.replaceToday && !legacyAppend) {
+      if (claim.id !== replacementClaim.id && !legacyAppend) {
         const replacement = (await tx.get(replacementClaim)).data();
         if (replacement?.complete || replacement?.until > Date.now()) return false;
       }
