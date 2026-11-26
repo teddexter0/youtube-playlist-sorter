@@ -51,7 +51,12 @@ export async function prepareStationRefresh(userId: string, key: StationKey, ite
   const token = cycleId ?? crypto.randomUUID();
   if (previous && ["filling", "retiring"].includes(previous.phase) && (!cycleId?.endsWith("--replacement") || previous.cycleId === token)) {
     const retiring = items.filter(item => previous.retiring?.includes(item.id));
-    return { items: items.filter(item => !retiring.includes(item)), held: false, token: previous.cycleId as string, retiring, started: true, pending: previous.replacement as Replacement | undefined, expected: previous.replacementIds as string[] | undefined };
+    const replacement = previous.replacement as Replacement | undefined;
+    const expected = [...new Set<string>(previous.replacementIds ?? [])];
+    // Older runs saved the count without video IDs. Rebuild from the live queue before deleting anything.
+    const pending = expected.length > 0 && expected.length === replacement?.count ? replacement : undefined;
+    return { items: items.filter(item => !retiring.includes(item)), held: false, token: previous.cycleId as string,
+      retiring, started: true, pending, expected: pending ? expected : undefined };
   }
   if ((previous?.phase === "complete" && previous.cycleId === token) || (key !== "tv" && !cycleId)) {
     return { items, held: false, token: "", retiring: [], started: false, completed: previous?.cycleId === token ? previous?.replacement as Replacement | undefined : undefined };

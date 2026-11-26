@@ -68,8 +68,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
       });
       return { videos: [], candidateCount: 0, mode, warnings: [], replacement: refresh.pending };
     }
-    if (existingItems.length >= capacity) {
-      if (refresh?.started) await finishStationRefresh(user.userId, key, refresh.token, youtube, refresh.retiring);
+    if (existingItems.length >= capacity && !refresh?.started) {
       if (mode === "dry-run") await ref.update({ tvPreviewHash: tvProfileHash(profile) });
       return { videos: [], candidateCount: 0, mode, warnings: ["The queue is at capacity; no more videos were added."] };
     }
@@ -86,7 +85,7 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
       }
     }
     const accountTaste = profile.useYouTubeLikes ? await getYouTubeAccountTaste(youtube) : null;
-    const excluded = new Set([...queue.map(item => item.contentDetails?.videoId ?? ""), ...(user.tvHistory ?? []), ...Object.keys(user.tvFeedback ?? {})]);
+    const excluded = new Set([...queue.map(item => item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId ?? ""), ...(user.tvHistory ?? []), ...Object.keys(user.tvFeedback ?? {})]);
     for (const id of accountTaste?.likedVideoIds ?? []) excluded.add(id);
     const blockedChannels = new Set(Object.values(user.tvFeedback ?? {}).filter((f) => f.action === "block-channel").map((f) => f.channelId));
     const warnings: string[] = [];
@@ -195,7 +194,10 @@ export async function runTvForUser(user: UserSettings, mode: "dry-run" | "live",
     }
     const categoryCounts = new Map<TvLane, number>();
     const channelCounts = new Map<string, number>();
-    const queuedVideos = await getVideos(youtube, [...new Set(priorBatchItems.flatMap(item => item.contentDetails?.videoId ? [item.contentDetails.videoId] : []))]);
+    const queuedVideos = await getVideos(youtube, [...new Set(priorBatchItems.flatMap(item => {
+      const id = item.contentDetails?.videoId ?? item.snippet?.resourceId?.videoId;
+      return id ? [id] : [];
+    }))]);
     const queuedCandidates: TvCandidate[] = queuedVideos.map(video => ({
       videoId: video.id ?? "", title: video.snippet?.title ?? "", channelTitle: video.snippet?.channelTitle ?? "",
       channelId: video.snippet?.channelId ?? "", description: video.snippet?.description ?? "", topic: "Existing queue",

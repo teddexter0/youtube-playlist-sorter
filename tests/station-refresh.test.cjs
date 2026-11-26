@@ -144,3 +144,17 @@ test('replacements are confirmed before old entries are retired and verification
  assert.deepEqual(queue.map(item=>item.id),['newItem']);
  assert.deepEqual((await prepareStationRefresh('alice','tv',queue,'day1')).completed,marker);
 });
+
+test('an older replacement without recorded IDs resumes from the actual partial queue', async () => {
+ data.clear();
+ const replacement = {id:'newItem',contentDetails:{videoId:'newVideo'}};
+ await beginStationRefresh('alice','tv','day1',items);
+ const marker = doc('users/alice/stationRefresh/tv');
+ await marker.set({phase:'retiring',replacement:{count:36,seconds:1000,highlights:[]}}, {merge:true});
+ const retry = await prepareStationRefresh('alice','tv',[replacement,...items],'day2');
+ assert.equal(retry.token,'day1');
+ assert.equal(retry.started,true);
+ assert.equal(retry.pending,undefined);
+ assert.deepEqual(retry.items,[replacement]);
+ assert.deepEqual(retry.retiring,items);
+});
